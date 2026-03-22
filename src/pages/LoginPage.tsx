@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { LanguageToggle } from '@/components/layout/LanguageToggle';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -10,11 +10,13 @@ import { useSession } from '@/features/session/context/SessionContext';
 export function LoginPage() {
   const { t } = useTranslation('login');
   const { status, login, errorMessage, clearSessionError } = useSession();
+  const location = useLocation();
   const [nickname, setNickname] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const redirectTo = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? '/';
 
   if (status === 'authenticated') {
-    return <Navigate to="/" replace />;
+    return <Navigate to={redirectTo} replace />;
   }
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {

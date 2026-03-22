@@ -1,10 +1,10 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
+import { Button } from '@/components/ui/Button';
 import { BattlePreviewCard } from '@/features/battle/components/BattlePreviewCard';
 import { CatalogPreviewCard } from '@/features/catalog/components/CatalogPreviewCard';
 import { HealthStatusCard } from '@/features/health/components/HealthStatusCard';
-import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { useSession } from '@/features/session/context/SessionContext';
 
@@ -23,16 +23,6 @@ export function HomePage() {
             <div className="space-y-2">
               <h2 className="text-4xl font-black tracking-tight md:text-5xl">{t('title')}</h2>
               <p className="max-w-xl text-base text-slate-600 md:text-lg">{t('description')}</p>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <Link to="/battle">
-                <Button className="rounded-2xl px-6 py-3 text-base font-bold">{t('actions.primary')}</Button>
-              </Link>
-              <Link to="/catalog">
-                <Button variant="secondary" className="rounded-2xl px-6 py-3 text-base font-bold">
-                  {t('actions.secondary')}
-                </Button>
-              </Link>
             </div>
           </div>
         </div>

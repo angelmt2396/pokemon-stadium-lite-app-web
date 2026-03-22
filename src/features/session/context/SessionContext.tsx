@@ -23,6 +23,7 @@ type SessionContextValue = {
   login: (nickname: string) => Promise<void>;
   logout: () => Promise<void>;
   clearSessionError: () => void;
+  updateRuntimeSession: (values: Partial<Pick<SessionSnapshot, 'reconnectToken' | 'currentLobbyId' | 'currentBattleId' | 'playerStatus'>>) => void;
 };
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -131,6 +132,30 @@ export function SessionProvider({ children }: PropsWithChildren) {
     setErrorMessage(null);
   }, []);
 
+  const updateRuntimeSession = useCallback(
+    (values: Partial<Pick<SessionSnapshot, 'reconnectToken' | 'currentLobbyId' | 'currentBattleId' | 'playerStatus'>>) => {
+      setSession((current) => {
+        if (!current) {
+          return current;
+        }
+
+        const nextSession = {
+          ...current,
+          ...values,
+        };
+
+        persistSession({
+          reconnectToken: nextSession.reconnectToken,
+          lobbyId: nextSession.currentLobbyId,
+          battleId: nextSession.currentBattleId,
+        });
+
+        return nextSession;
+      });
+    },
+    [],
+  );
+
   const value = useMemo<SessionContextValue>(
     () => ({
       status,
@@ -153,8 +178,9 @@ export function SessionProvider({ children }: PropsWithChildren) {
         }
       },
       clearSessionError,
+      updateRuntimeSession,
     }),
-    [clearSessionError, errorMessage, login, logout, session, status],
+    [clearSessionError, errorMessage, login, logout, session, status, updateRuntimeSession],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
@@ -169,4 +195,3 @@ export function useSession() {
 
   return context;
 }
-

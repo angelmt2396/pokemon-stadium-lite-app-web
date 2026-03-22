@@ -41,12 +41,6 @@ export function AppShell({ children }: PropsWithChildren) {
               <NavLink className={navLinkClassName} to="/">
                 {t('navigation.home')}
               </NavLink>
-              <NavLink className={navLinkClassName} to="/catalog">
-                {t('navigation.catalog')}
-              </NavLink>
-              <NavLink className={navLinkClassName} to="/battle">
-                {t('navigation.battle')}
-              </NavLink>
             </nav>
             <Button
               type="button"
