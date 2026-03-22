@@ -1,0 +1,47 @@
+export const battleEs = {
+  eyebrow: 'Combate',
+  title: 'Batalla',
+  description: 'Lobby, equipo y arena en un mismo flujo.',
+  preview: {
+    kicker: 'Modo',
+    title: 'Batalla',
+    description: 'Entrar a la arena',
+    cta: 'Abrir',
+  },
+  lobby: {
+    badge: 'Lobby',
+    player: 'Jugador: {{nickname}}',
+    title: 'Sala de combate',
+    description: 'Espera rival, entra en ready y prepárate para el combate.',
+    primaryAction: 'Buscar rival',
+    secondaryAction: 'Cancelar',
+  },
+  status: {
+    badge: 'Estado',
+    title: 'Progreso',
+    description: 'El flujo avanza de espera a combate.',
+    stepOne: '1. Buscando rival',
+    stepTwo: '2. Match encontrado',
+    stepThree: '3. Listos para combatir',
+  },
+  arena: {
+    kicker: 'Arena',
+    title: 'Vista de combate',
+    playerOne: 'Jugador local',
+    playerOnePokemon: 'Alakazam',
+    playerTwo: 'Rival',
+    playerTwoPokemon: 'Dragonite',
+    turnBadge: 'Turno actual',
+  },
+  team: {
+    title: 'Equipo',
+    action: 'Ready',
+  },
+  log: {
+    title: 'Actividad',
+    badge: 'Live',
+    itemOne: 'Esperando rival...',
+    itemTwo: 'Equipo asignado.',
+    itemThree: 'Todo listo para comenzar.',
+  },
+};

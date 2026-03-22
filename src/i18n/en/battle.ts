@@ -1,0 +1,47 @@
+export const battleEn = {
+  eyebrow: 'Combat',
+  title: 'Battle',
+  description: 'Lobby, team, and arena in a single flow.',
+  preview: {
+    kicker: 'Mode',
+    title: 'Battle',
+    description: 'Enter the arena',
+    cta: 'Open',
+  },
+  lobby: {
+    badge: 'Lobby',
+    player: 'Player: {{nickname}}',
+    title: 'Combat room',
+    description: 'Wait for an opponent, enter ready, and prepare for combat.',
+    primaryAction: 'Find rival',
+    secondaryAction: 'Cancel',
+  },
+  status: {
+    badge: 'Status',
+    title: 'Progress',
+    description: 'The flow moves from waiting into combat.',
+    stepOne: '1. Searching rival',
+    stepTwo: '2. Match found',
+    stepThree: '3. Ready to fight',
+  },
+  arena: {
+    kicker: 'Arena',
+    title: 'Combat view',
+    playerOne: 'Local player',
+    playerOnePokemon: 'Alakazam',
+    playerTwo: 'Opponent',
+    playerTwoPokemon: 'Dragonite',
+    turnBadge: 'Current turn',
+  },
+  team: {
+    title: 'Team',
+    action: 'Ready',
+  },
+  log: {
+    title: 'Activity',
+    badge: 'Live',
+    itemOne: 'Waiting for opponent...',
+    itemTwo: 'Team assigned.',
+    itemThree: 'Everything ready to start.',
+  },
+};
