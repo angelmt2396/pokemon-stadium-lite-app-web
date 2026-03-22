@@ -97,7 +97,10 @@ export function LoginPage() {
                 </div>
               ) : null}
 
-              <Button className="w-full rounded-2xl py-3 text-base font-bold" disabled={submitting}>
+              <Button
+                className="w-full rounded-2xl py-3.5 text-base font-black tracking-[0.01em]"
+                disabled={submitting}
+              >
                 {submitting ? t('form.submitting') : t('form.submit')}
               </Button>
             </form>

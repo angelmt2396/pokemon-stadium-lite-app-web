@@ -24,7 +24,10 @@ export function BattlePreviewCard() {
         <div className="h-14 rounded-2xl bg-white/6" />
       </div>
       <Link to="/battle" className="block">
-        <Button variant="secondary" className="w-full rounded-2xl py-3 font-bold">
+        <Button
+          variant="secondary"
+          className="w-full rounded-2xl border border-white/20 bg-white text-slate-950 py-3 font-black shadow-[0_18px_32px_rgba(8,12,34,0.32)] hover:bg-slate-100"
+        >
           {t('preview.cta')}
         </Button>
       </Link>
