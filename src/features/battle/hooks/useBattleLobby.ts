@@ -24,6 +24,7 @@ import type { SocketAck } from '@/lib/socket/types';
 
 const MAX_ACTIVITY_ITEMS = 6;
 const SOCKET_ACK_TIMEOUT_MS = 5000;
+const MATCH_SEARCH_TIMEOUT_MS = 3 * 60_000;
 
 type ActivityItem = {
   id: number;
@@ -98,6 +99,8 @@ export function useBattleLobby() {
   const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [searchStartedAt, setSearchStartedAt] = useState<number | null>(null);
+  const [searchElapsedMs, setSearchElapsedMs] = useState<number | null>(null);
   const autoAssignLobbyIdRef = useRef<string | null>(null);
   const autoReadyLobbyIdRef = useRef<string | null>(null);
   const reconnectInFlightRef = useRef(false);
@@ -114,6 +117,8 @@ export function useBattleLobby() {
   useEffect(() => {
     if (!session) {
       setSearchState('idle');
+      setSearchStartedAt(null);
+      setSearchElapsedMs(null);
       return;
     }
 
@@ -121,6 +126,8 @@ export function useBattleLobby() {
     // realtime channel confirms the player is actually searching or waiting.
     if (!session.currentBattleId && !session.currentLobbyId) {
       setSearchState('idle');
+      setSearchStartedAt(null);
+      setSearchElapsedMs(null);
     }
   }, [session?.currentBattleId, session?.currentLobbyId, session?.playerId]);
 
@@ -177,6 +184,8 @@ export function useBattleLobby() {
         setBattleState(ack.data.battleState);
         setBattleResult(null);
         setSearchState('idle');
+        setSearchStartedAt(null);
+        setSearchElapsedMs(null);
         updateRuntimeSession({
           currentLobbyId: ack.data.lobbyId,
           currentBattleId: ack.data.battleState.battleId,
@@ -185,7 +194,10 @@ export function useBattleLobby() {
       } else {
         setBattleState(null);
         setBattleResult(null);
-        setSearchState(ack.data.lobbyStatus.players.length === 1 ? 'searching' : 'idle');
+        const isSearching = ack.data.lobbyStatus.players.length === 1;
+        setSearchState(isSearching ? 'searching' : 'idle');
+        setSearchStartedAt((current) => (isSearching ? current ?? Date.now() : null));
+        setSearchElapsedMs((current) => (isSearching ? current ?? 0 : null));
         updateRuntimeSession({
           currentLobbyId: ack.data.lobbyId,
           currentBattleId: null,
@@ -201,6 +213,39 @@ export function useBattleLobby() {
     t,
     updateRuntimeSession,
   ]);
+
+  const reconcileSessionState = useCallback(async () => {
+    const currentSession = sessionRef.current;
+
+    if (!currentSession?.sessionToken) {
+      return;
+    }
+
+    try {
+      const payload = await getCurrentNicknameSession(currentSession.sessionToken);
+
+      updateRuntimeSession({
+        currentLobbyId: payload.currentLobbyId,
+        currentBattleId: payload.currentBattleId,
+        playerStatus: payload.playerStatus,
+      });
+
+      if (payload.currentLobbyId || payload.currentBattleId) {
+        void rehydrateRealtimeState();
+        return;
+      }
+
+      setSearchState('idle');
+      setSearchStartedAt(null);
+      setSearchElapsedMs(null);
+      setLobbyStatus(null);
+      setMatchFound(null);
+      setBattleState(null);
+      setBattleResult(null);
+    } catch {
+      // Ignore reconciliation failures and leave the current UI state intact.
+    }
+  }, [rehydrateRealtimeState, updateRuntimeSession]);
 
   useEffect(() => {
     if (!session?.sessionToken) {
@@ -234,6 +279,8 @@ export function useBattleLobby() {
 
       if (payload.status === 'searching') {
         setSearchState('searching');
+        setSearchStartedAt((current) => current ?? Date.now());
+        setSearchElapsedMs((current) => current ?? 0);
         updateRuntimeSession({
           currentLobbyId: payload.lobbyId ?? currentSession.currentLobbyId,
           currentBattleId: null,
@@ -244,6 +291,8 @@ export function useBattleLobby() {
       }
 
       setSearchState('idle');
+      setSearchStartedAt(null);
+      setSearchElapsedMs(null);
 
       if (payload.canceled) {
         setMatchFound(null);
@@ -280,6 +329,8 @@ export function useBattleLobby() {
         };
       });
       setSearchState('idle');
+      setSearchStartedAt(null);
+      setSearchElapsedMs(null);
       setBattleState(null);
       setBattleResult(null);
       updateRuntimeSession({
@@ -318,6 +369,8 @@ export function useBattleLobby() {
 
       if (payload.status === 'finished' && payload.players.length === 0) {
         setSearchState('idle');
+        setSearchStartedAt(null);
+        setSearchElapsedMs(null);
         setMatchFound(null);
         setBattleState(null);
         setBattleResult(null);
@@ -332,8 +385,12 @@ export function useBattleLobby() {
 
       if (payload.status === 'waiting' && payload.players.length === 1) {
         setSearchState('searching');
+        setSearchStartedAt((current) => current ?? Date.now());
+        setSearchElapsedMs((current) => current ?? 0);
       } else {
         setSearchState('idle');
+        setSearchStartedAt(null);
+        setSearchElapsedMs(null);
       }
 
       updateRuntimeSession({
@@ -361,6 +418,8 @@ export function useBattleLobby() {
       setBattleState(payload);
       setBattleResult(null);
       setSearchState('idle');
+      setSearchStartedAt(null);
+      setSearchElapsedMs(null);
       updateRuntimeSession({
         currentLobbyId: payload.lobbyId,
         currentBattleId: payload.battleId,
@@ -441,6 +500,9 @@ export function useBattleLobby() {
           : current,
       );
       setSearchState('idle');
+      setSearchStartedAt(null);
+      setSearchElapsedMs(null);
+      setLobbyStatus(null);
       setMatchFound(null);
       updateRuntimeSession({
         currentLobbyId: null,
@@ -495,6 +557,7 @@ export function useBattleLobby() {
     };
   }, [
     appendActivity,
+    reconcileSessionState,
     rehydrateRealtimeState,
     session?.sessionToken,
     t,
@@ -590,6 +653,8 @@ export function useBattleLobby() {
     setActionPending(true);
     setActionError(null);
     setSearchState('searching');
+    setSearchStartedAt(Date.now());
+    setSearchElapsedMs(0);
     setBattleState(null);
     setBattleResult(null);
     setMatchFound(null);
@@ -616,6 +681,13 @@ export function useBattleLobby() {
       appendActivity(t('log.searching'));
     } catch (error) {
       setSearchState('idle');
+      setSearchStartedAt(null);
+      setSearchElapsedMs(null);
+
+      if (error instanceof Error && error.message === 'Player already has an active lobby or battle') {
+        void reconcileSessionState();
+      }
+
       setActionError(
         error instanceof Error && error.message === 'socket_ack_timeout'
           ? t('errors.socketTimeout')
@@ -626,7 +698,7 @@ export function useBattleLobby() {
     } finally {
       setActionPending(false);
     }
-  }, [appendActivity, session?.sessionToken, t, updateRuntimeSession]);
+  }, [appendActivity, reconcileSessionState, session?.sessionToken, t, updateRuntimeSession]);
 
   const assignTeam = useCallback(async () => {
     if (!session?.sessionToken || !session.currentLobbyId) {
@@ -653,6 +725,14 @@ export function useBattleLobby() {
       return false;
     }
   }, [appendActivity, session?.currentLobbyId, session?.sessionToken, t]);
+
+  const dismissBattleResult = useCallback(() => {
+    setBattleResult(null);
+    setBattleState(null);
+    setLobbyStatus(null);
+    setMatchFound(null);
+    setActionError(null);
+  }, []);
 
   const markReady = useCallback(async () => {
     if (!session?.sessionToken || !session.currentLobbyId) {
@@ -711,14 +791,16 @@ export function useBattleLobby() {
     }
   }, [appendActivity, battleState?.battleId, session?.sessionToken, t]);
 
-  const cancelSearch = useCallback(async () => {
+  const stopSearch = useCallback(async (reason: 'manual' | 'timeout') => {
     if (!session?.sessionToken) {
-      return;
+      return false;
     }
 
     setActionPending(true);
-    setActionError(null);
-    appendActivity(t('log.cancelRequestSent'));
+    if (reason === 'manual') {
+      setActionError(null);
+      appendActivity(t('log.cancelRequestSent'));
+    }
 
     try {
       const socket = await ensureSocketConnected(getSocketClient(session.sessionToken), session.sessionToken);
@@ -729,6 +811,8 @@ export function useBattleLobby() {
       }
 
       setSearchState('idle');
+      setSearchStartedAt(null);
+      setSearchElapsedMs(null);
       setMatchFound(null);
       setLobbyStatus(ack.data.lobbyStatus);
       setBattleState(null);
@@ -739,8 +823,16 @@ export function useBattleLobby() {
         currentBattleId: null,
         playerStatus: 'idle',
       });
-      appendActivity(t('log.cancelled'));
+      if (reason === 'timeout') {
+        setActionError(t('errors.searchTimeout'));
+        appendActivity(t('log.searchTimedOut'));
+      } else {
+        appendActivity(t('log.cancelled'));
+      }
+      return true;
     } catch (error) {
+      setSearchStartedAt(null);
+      setSearchElapsedMs(null);
       setActionError(
         error instanceof Error && error.message === 'socket_ack_timeout'
           ? t('errors.socketTimeout')
@@ -748,10 +840,15 @@ export function useBattleLobby() {
             ? error.message
             : t('errors.unexpected'),
       );
+      return false;
     } finally {
       setActionPending(false);
     }
   }, [appendActivity, session?.sessionToken, t, updateRuntimeSession]);
+
+  const cancelSearch = useCallback(async () => {
+    return await stopSearch('manual');
+  }, [stopSearch]);
 
   const players =
     lobbyStatus && matchFound
@@ -833,6 +930,38 @@ export function useBattleLobby() {
     return 'idle';
   }, [opponent, searchState, session?.currentBattleId]);
 
+  useEffect(() => {
+    if (searchState !== 'searching' || !searchStartedAt || actionPending) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void stopSearch('timeout');
+    }, Math.max(0, searchStartedAt + MATCH_SEARCH_TIMEOUT_MS - Date.now()));
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [actionPending, searchStartedAt, searchState, stopSearch]);
+
+  useEffect(() => {
+    if (searchState !== 'searching' || !searchStartedAt) {
+      setSearchElapsedMs(null);
+      return;
+    }
+
+    const syncElapsed = () => {
+      setSearchElapsedMs(Math.min(MATCH_SEARCH_TIMEOUT_MS, Math.max(0, Date.now() - searchStartedAt)));
+    };
+
+    syncElapsed();
+    const intervalId = window.setInterval(syncElapsed, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [searchStartedAt, searchState]);
+
   return {
     actionError,
     actionPending,
@@ -843,11 +972,13 @@ export function useBattleLobby() {
     battleState,
     cancelSearch,
     connectionState,
+    dismissBattleResult,
     flowState,
     lobbyStatus,
     markReady,
     ownPlayer,
     opponent,
+    searchElapsedMs,
     searchMatch,
     team,
   };

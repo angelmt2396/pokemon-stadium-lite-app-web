@@ -5,6 +5,7 @@ export type BattleLobbyPlayer = {
   team: Array<{
     pokemonId: number;
     name: string;
+    sprite: string;
   }>;
 };
 
@@ -29,6 +30,7 @@ export type SearchStatusEvent = {
 export type BattleStatePokemon = {
   pokemonId: number;
   name: string;
+  sprite: string;
   hp: number;
   currentHp: number;
   attack: number;
@@ -41,6 +43,7 @@ export type BattleStatePlayer = {
   playerId: string;
   activePokemonIndex: number;
   activePokemon: BattleStatePokemon | null;
+  team: BattleStatePokemon[];
 };
 
 export type BattleStateEvent = {
