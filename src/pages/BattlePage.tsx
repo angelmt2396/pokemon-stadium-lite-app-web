@@ -14,7 +14,9 @@ export function BattlePage() {
   const {
     actionError,
     actionPending,
+    attack,
     activityItems,
+    battleResult,
     battleState,
     connectionState,
     flowState,
@@ -30,6 +32,9 @@ export function BattlePage() {
     battleState && session ? battleState.players.find((player) => player.playerId !== session.playerId) ?? null : null;
   const ownActivePokemon = ownBattlePlayer?.activePokemon ?? null;
   const opponentActivePokemon = opponentBattlePlayer?.activePokemon ?? null;
+  const isBattleFinished = Boolean(battleResult);
+  const isPlayerTurn = flowState === 'battling' && battleState?.currentTurnPlayerId === session?.playerId;
+  const canAttack = Boolean(isPlayerTurn && !actionPending && !isBattleFinished);
   const ownHpPercent = ownActivePokemon ? Math.max(8, (ownActivePokemon.currentHp / ownActivePokemon.hp) * 100) : 74;
   const opponentHpPercent = opponentActivePokemon
     ? Math.max(8, (opponentActivePokemon.currentHp / opponentActivePokemon.hp) * 100)
@@ -40,13 +45,17 @@ export function BattlePage() {
     ? t('team.actions.autoAssigning')
     : flowState === 'matched' && team.length === 3 && !ownPlayer?.ready
       ? t('team.actions.autoReady')
+      : isBattleFinished
+        ? t('team.actions.finished')
       : ownPlayer?.ready
         ? t('team.actions.readyDone')
         : team.length === 3
           ? t('team.actions.assigned')
           : t('team.actions.waiting');
   const arenaBadgeLabel =
-    flowState === 'battling'
+    isBattleFinished
+      ? t('arena.finishedBadge')
+      : flowState === 'battling'
       ? battleState?.currentTurnPlayerId === session?.playerId
         ? t('arena.yourTurn')
         : t('arena.opponentTurn')
@@ -60,7 +69,9 @@ export function BattlePage() {
         : 'info';
 
   const heroBadgeLabel =
-    flowState === 'matched'
+    isBattleFinished
+      ? t('lobby.badges.finished')
+      : flowState === 'matched'
       ? t('lobby.badges.matched')
       : flowState === 'battling'
         ? t('lobby.badges.battling')
@@ -83,7 +94,11 @@ export function BattlePage() {
         : t('status.connection.disconnected');
 
   const statusDescription =
-    flowState === 'matched'
+    isBattleFinished
+      ? battleResult?.winnerPlayerId === session?.playerId
+        ? t('status.descriptions.won')
+        : t('status.descriptions.lost')
+      : flowState === 'matched'
       ? t('status.descriptions.matched', { nickname: opponent?.nickname ?? t('status.fallbackOpponent') })
       : flowState === 'battling'
         ? t('status.descriptions.battling')
@@ -233,6 +248,27 @@ export function BattlePage() {
                 />
               </div>
             </div>
+          </div>
+          <div className="mt-6 grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+            <div className="rounded-2xl bg-white/8 px-4 py-3 text-sm font-medium text-white/78">
+              {isBattleFinished
+                ? battleResult?.winnerPlayerId === session?.playerId
+                  ? t('arena.result.win')
+                  : t('arena.result.lose')
+                : isPlayerTurn
+                  ? t('arena.attackReady')
+                  : t('arena.waitingTurnState')}
+            </div>
+            <Button
+              type="button"
+              className="min-h-12 rounded-2xl px-5 py-3 font-black"
+              disabled={!canAttack}
+              onClick={() => {
+                void attack();
+              }}
+            >
+              {actionPending && isPlayerTurn ? t('arena.attackPending') : t('arena.attackAction')}
+            </Button>
           </div>
         </Card>
 

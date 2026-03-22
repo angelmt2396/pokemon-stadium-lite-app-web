@@ -76,6 +76,10 @@ export type BattleEndEvent = {
   status: 'finished';
 };
 
+export type AttackAckData = {
+  accepted: boolean;
+};
+
 export type SearchMatchAckData = {
   playerId: string;
   reconnectToken: string;
