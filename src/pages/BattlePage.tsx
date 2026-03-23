@@ -98,6 +98,7 @@ export function BattlePage() {
   const shownBattleIntroRef = useRef<string | null>(null);
   const shownBattleResultRef = useRef<string | null>(null);
   const shownTurnActionRef = useRef<string | null>(null);
+  const lastKnownOpponentNameRef = useRef<string | null>(null);
   const {
     actionError,
     actionPending,
@@ -158,6 +159,7 @@ export function BattlePage() {
     : opponent
       ? 54
       : 16;
+  const resolvedOpponentName = opponent?.nickname ?? lastKnownOpponentNameRef.current ?? t('status.fallbackOpponent');
   const battleResultReason = battleResult?.reason ?? null;
   const teamActionLabel = flowState === 'matched' && team.length === 0
     ? t('team.actions.autoAssigning')
@@ -471,6 +473,12 @@ export function BattlePage() {
   ]);
 
   useEffect(() => {
+    if (opponent?.nickname) {
+      lastKnownOpponentNameRef.current = opponent.nickname;
+    }
+  }, [opponent?.nickname]);
+
+  useEffect(() => {
     if (!initialCinematicsReadyRef.current || !battleResult?.battleId || shownBattleResultRef.current === battleResult.battleId) {
       return;
     }
@@ -480,9 +488,9 @@ export function BattlePage() {
       id: `result-${battleResult.battleId}`,
       type: 'battle-result',
       didWin: battleResult.winnerPlayerId === session?.playerId,
-      opponentName: opponent?.nickname ?? t('status.fallbackOpponent'),
+      opponentName: resolvedOpponentName,
     });
-  }, [battleResult, enqueueCinematic, opponent?.nickname, session?.playerId, t]);
+  }, [battleResult, enqueueCinematic, resolvedOpponentName, session?.playerId]);
 
   useEffect(() => {
     if (!latestTurnResult || !battleState?.players.length || !session?.playerId) {
