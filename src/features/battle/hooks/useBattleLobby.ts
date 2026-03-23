@@ -96,6 +96,7 @@ export function useBattleLobby() {
   const [matchFound, setMatchFound] = useState<MatchFoundEvent | null>(null);
   const [battleState, setBattleState] = useState<BattleStateEvent | null>(null);
   const [battleResult, setBattleResult] = useState<BattleEndEvent | null>(null);
+  const [latestTurnResult, setLatestTurnResult] = useState<TurnResultEvent | null>(null);
   const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -182,7 +183,7 @@ export function useBattleLobby() {
 
       if (ack.data.battleState) {
         setBattleState(ack.data.battleState);
-        setBattleResult(null);
+        setBattleResult(ack.data.battleEnd ?? null);
         setSearchState('idle');
         setSearchStartedAt(null);
         setSearchElapsedMs(null);
@@ -190,6 +191,17 @@ export function useBattleLobby() {
           currentLobbyId: ack.data.lobbyId,
           currentBattleId: ack.data.battleState.battleId,
           playerStatus: ack.data.battleState.status,
+        });
+      } else if (ack.data.battleEnd) {
+        setBattleState(null);
+        setBattleResult(ack.data.battleEnd);
+        setSearchState('idle');
+        setSearchStartedAt(null);
+        setSearchElapsedMs(null);
+        updateRuntimeSession({
+          currentLobbyId: null,
+          currentBattleId: null,
+          playerStatus: 'idle',
         });
       } else {
         setBattleState(null);
@@ -242,6 +254,7 @@ export function useBattleLobby() {
       setMatchFound(null);
       setBattleState(null);
       setBattleResult(null);
+      setLatestTurnResult(null);
     } catch {
       // Ignore reconciliation failures and leave the current UI state intact.
     }
@@ -299,6 +312,7 @@ export function useBattleLobby() {
         setLobbyStatus(null);
         setBattleState(null);
         setBattleResult(null);
+        setLatestTurnResult(null);
         updateRuntimeSession({
           reconnectToken: null,
           currentLobbyId: null,
@@ -333,6 +347,7 @@ export function useBattleLobby() {
       setSearchElapsedMs(null);
       setBattleState(null);
       setBattleResult(null);
+      setLatestTurnResult(null);
       updateRuntimeSession({
         currentLobbyId: payload.lobbyId,
         currentBattleId: null,
@@ -374,6 +389,7 @@ export function useBattleLobby() {
         setMatchFound(null);
         setBattleState(null);
         setBattleResult(null);
+        setLatestTurnResult(null);
         updateRuntimeSession({
           reconnectToken: null,
           currentLobbyId: null,
@@ -417,6 +433,7 @@ export function useBattleLobby() {
 
       setBattleState(payload);
       setBattleResult(null);
+      setLatestTurnResult(null);
       setSearchState('idle');
       setSearchStartedAt(null);
       setSearchElapsedMs(null);
@@ -426,6 +443,44 @@ export function useBattleLobby() {
         playerStatus: payload.status,
       });
       appendActivity(t('log.battleStarted'));
+    };
+
+    const handleBattlePause = (payload: BattleStateEvent) => {
+      const currentSession = sessionRef.current;
+
+      if (!currentSession || payload.battleId !== currentSession.currentBattleId) {
+        return;
+      }
+
+      setBattleState(payload);
+      setActionError(null);
+      setLatestTurnResult(null);
+      updateRuntimeSession({
+        currentLobbyId: payload.lobbyId,
+        currentBattleId: payload.battleId,
+        playerStatus: payload.status,
+      });
+      appendActivity(
+        payload.disconnectedPlayerId === currentSession.playerId ? t('log.pauseSelf') : t('log.pauseOpponent'),
+      );
+    };
+
+    const handleBattleResume = (payload: BattleStateEvent) => {
+      const currentSession = sessionRef.current;
+
+      if (!currentSession || payload.battleId !== currentSession.currentBattleId) {
+        return;
+      }
+
+      setBattleState(payload);
+      setActionError(null);
+      setLatestTurnResult(null);
+      updateRuntimeSession({
+        currentLobbyId: payload.lobbyId,
+        currentBattleId: payload.battleId,
+        playerStatus: payload.status,
+      });
+      appendActivity(t('log.battleResumed'));
     };
 
     const handleTurnResult = (payload: TurnResultEvent) => {
@@ -444,6 +499,9 @@ export function useBattleLobby() {
           ...current,
           status: payload.battleStatus,
           currentTurnPlayerId: payload.nextTurnPlayerId,
+          finishReason: null,
+          disconnectedPlayerId: null,
+          reconnectDeadlineAt: null,
           players: current.players.map((player) => {
             if (player.playerId !== payload.defenderPlayerId) {
               return player;
@@ -471,6 +529,7 @@ export function useBattleLobby() {
           }),
         };
       });
+      setLatestTurnResult(payload);
 
       appendActivity(t('log.turnResolved'));
     };
@@ -496,6 +555,10 @@ export function useBattleLobby() {
               ...current,
               status: 'finished',
               currentTurnPlayerId: null,
+              winnerPlayerId: payload.winnerPlayerId,
+              finishReason: payload.reason,
+              disconnectedPlayerId: payload.disconnectedPlayerId,
+              reconnectDeadlineAt: null,
             }
           : current,
       );
@@ -504,13 +567,20 @@ export function useBattleLobby() {
       setSearchElapsedMs(null);
       setLobbyStatus(null);
       setMatchFound(null);
+      setLatestTurnResult(null);
       updateRuntimeSession({
         currentLobbyId: null,
         currentBattleId: null,
         playerStatus: 'idle',
       });
       appendActivity(
-        payload.winnerPlayerId === currentSession.playerId ? t('log.battleWon') : t('log.battleLost'),
+        payload.reason === 'disconnect_timeout'
+          ? payload.winnerPlayerId === currentSession.playerId
+            ? t('log.battleWonByDisconnect')
+            : t('log.battleLostByDisconnect')
+          : payload.winnerPlayerId === currentSession.playerId
+            ? t('log.battleWon')
+            : t('log.battleLost'),
       );
     };
 
@@ -523,6 +593,8 @@ export function useBattleLobby() {
     socket.on(socketEvents.server.matchFound, handleMatchFound);
     socket.on(socketEvents.server.lobbyStatus, handleLobbyStatus);
     socket.on(socketEvents.server.battleStart, handleBattleStart);
+    socket.on(socketEvents.server.battlePause, handleBattlePause);
+    socket.on(socketEvents.server.battleResume, handleBattleResume);
     socket.on(socketEvents.server.turnResult, handleTurnResult);
     socket.on(socketEvents.server.battleEnd, handleBattleEnd);
 
@@ -549,6 +621,8 @@ export function useBattleLobby() {
       socket.off(socketEvents.server.matchFound, handleMatchFound);
       socket.off(socketEvents.server.lobbyStatus, handleLobbyStatus);
       socket.off(socketEvents.server.battleStart, handleBattleStart);
+      socket.off(socketEvents.server.battlePause, handleBattlePause);
+      socket.off(socketEvents.server.battleResume, handleBattleResume);
       socket.off(socketEvents.server.turnResult, handleTurnResult);
       socket.off(socketEvents.server.battleEnd, handleBattleEnd);
       window.removeEventListener('focus', handleVisibilityOrFocus);
@@ -620,6 +694,7 @@ export function useBattleLobby() {
           setMatchFound(null);
           setBattleState(null);
           setBattleResult(null);
+          setLatestTurnResult(null);
         }
       } catch {
         // Ignore polling errors. Realtime flow remains the primary source.
@@ -658,6 +733,7 @@ export function useBattleLobby() {
     setBattleState(null);
     setBattleResult(null);
     setMatchFound(null);
+    setLatestTurnResult(null);
     appendActivity(t('log.searchRequestSent'));
 
     try {
@@ -672,6 +748,7 @@ export function useBattleLobby() {
       setMatchFound(null);
       setBattleState(null);
       setBattleResult(null);
+      setLatestTurnResult(null);
       updateRuntimeSession({
         reconnectToken: ack.data.reconnectToken,
         currentLobbyId: ack.data.lobbyId,
@@ -731,6 +808,7 @@ export function useBattleLobby() {
     setBattleState(null);
     setLobbyStatus(null);
     setMatchFound(null);
+    setLatestTurnResult(null);
     setActionError(null);
   }, []);
 
@@ -817,6 +895,7 @@ export function useBattleLobby() {
       setLobbyStatus(ack.data.lobbyStatus);
       setBattleState(null);
       setBattleResult(null);
+      setLatestTurnResult(null);
       updateRuntimeSession({
         reconnectToken: null,
         currentLobbyId: null,
@@ -974,6 +1053,7 @@ export function useBattleLobby() {
     connectionState,
     dismissBattleResult,
     flowState,
+    latestTurnResult,
     lobbyStatus,
     markReady,
     ownPlayer,

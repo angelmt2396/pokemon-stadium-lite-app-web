@@ -49,8 +49,12 @@ export type BattleStatePlayer = {
 export type BattleStateEvent = {
   battleId: string;
   lobbyId: string;
-  status: 'battling' | 'finished';
+  status: 'battling' | 'paused' | 'finished';
   currentTurnPlayerId: string | null;
+  winnerPlayerId: string | null;
+  disconnectedPlayerId: string | null;
+  reconnectDeadlineAt: string | null;
+  finishReason: 'hp_depleted' | 'disconnect_timeout' | null;
   players: BattleStatePlayer[];
 };
 
@@ -69,14 +73,16 @@ export type TurnResultEvent = {
     pokemon: BattleStatePokemon | null;
   } | null;
   nextTurnPlayerId: string | null;
-  battleStatus: 'battling' | 'finished';
+  battleStatus: 'battling' | 'paused' | 'finished';
 };
 
 export type BattleEndEvent = {
   battleId: string;
   lobbyId: string;
-  winnerPlayerId: string;
+  winnerPlayerId: string | null;
   status: 'finished';
+  reason: 'hp_depleted' | 'disconnect_timeout' | null;
+  disconnectedPlayerId: string | null;
 };
 
 export type AttackAckData = {
@@ -119,6 +125,8 @@ export type ReconnectPlayerAckData = {
   previousSocketId: string | null;
   lobbyStatus: LobbyStatusEvent;
   battleState: BattleStateEvent | null;
+  battleEnd: BattleEndEvent | null;
+  battleResumed: boolean;
 };
 
 export type SocketConnectionState = 'connecting' | 'connected' | 'disconnected';

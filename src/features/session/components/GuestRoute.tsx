@@ -1,4 +1,4 @@
-import { Navigate, Outlet } from 'react-router-dom';
+import { Outlet } from 'react-router-dom';
 import { useSession } from '@/features/session/context/SessionContext';
 
 export function GuestRoute() {
@@ -14,10 +14,5 @@ export function GuestRoute() {
     );
   }
 
-  if (status === 'authenticated') {
-    return <Navigate to="/" replace />;
-  }
-
   return <Outlet />;
 }
-

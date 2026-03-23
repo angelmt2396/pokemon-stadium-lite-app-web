@@ -9,14 +9,18 @@ import { useSession } from '@/features/session/context/SessionContext';
 
 export function LoginPage() {
   const { t } = useTranslation('login');
-  const { status, login, errorMessage, clearSessionError } = useSession();
+  const { status, session, login, errorMessage, clearSessionError } = useSession();
   const location = useLocation();
   const [nickname, setNickname] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const redirectTo = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? '/';
+  const postLoginRedirect =
+    session?.currentLobbyId || session?.currentBattleId
+      ? '/battle'
+      : redirectTo;
 
   if (status === 'authenticated') {
-    return <Navigate to={redirectTo} replace />;
+    return <Navigate to={postLoginRedirect} replace />;
   }
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -41,7 +45,7 @@ export function LoginPage() {
         <div className="absolute bottom-[8%] left-[24%] h-56 w-56 rounded-full bg-emerald-200/25 blur-3xl" />
       </div>
       <div className="page-container flex min-h-screen items-center justify-center">
-        <div className="relative z-10 w-full max-w-6xl grid gap-8 lg:grid-cols-[1.15fr_0.85fr]">
+        <div className="relative z-10 grid w-full max-w-6xl gap-8 lg:grid-cols-[1.15fr_0.85fr]">
           <section className="self-center">
             <div className="game-frame relative overflow-hidden px-8 py-10 md:px-10 md:py-12">
               <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-300 via-rose-300 to-blue-400" />

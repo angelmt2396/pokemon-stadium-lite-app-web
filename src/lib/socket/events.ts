@@ -12,8 +12,9 @@ export const socketEvents = {
     matchFound: 'match_found',
     lobbyStatus: 'lobby_status',
     battleStart: 'battle_start',
+    battlePause: 'battle_pause',
+    battleResume: 'battle_resume',
     turnResult: 'turn_result',
     battleEnd: 'battle_end',
   },
 } as const;
-

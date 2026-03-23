@@ -8,6 +8,7 @@ export type SessionPayload = {
   currentLobbyId: string | null;
   currentBattleId: string | null;
   sessionToken?: string;
+  reconnectToken?: string | null;
 };
 
 export type SessionSnapshot = {
@@ -19,4 +20,3 @@ export type SessionSnapshot = {
   currentBattleId: string | null;
   reconnectToken: string | null;
 };
-

@@ -28,4 +28,3 @@ export function closeNicknameSession(token: string) {
     token,
   });
 }
-

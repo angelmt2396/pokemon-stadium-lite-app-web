@@ -4,7 +4,7 @@ Frontend web para `Pokemon Stadium Lite`, construido como SPA con React.
 
 ## Estado actual
 
-Fase 1 implementada:
+Implementado actualmente:
 
 - `Vite + React + TypeScript`
 - `Tailwind CSS`
@@ -18,12 +18,20 @@ Fase 1 implementada:
   - `/catalog`
   - `/matchmaking`
   - `/battle`
-- shell visual inicial
+- shell visual de home, catálogo y combate
 - login ligero por nickname
 - bootstrap de sesión con `sessionToken`
 - guards para rutas autenticadas
 - i18n con español base e inglés soportado
 - configuración base para REST y Socket.IO
+- catálogo consumiendo `sprite`
+- flujo unificado de batalla/lobby en `/battle`
+- reanudación de lobby o batalla activa
+- cinemáticas de match encontrado, equipo asignado, inicio y resultado
+- HUD de combate con sprites, equipo visible y estado `KO`
+- pausa de combate por desconexión con countdown de 15 segundos
+- reanudación automática si el jugador vuelve a tiempo
+- resolución visual del resultado por `disconnect_timeout`
 
 ## Requisitos
 
@@ -76,8 +84,19 @@ src/
 
 ## Notas
 
-- El código interno está en inglés.
 - El idioma base visible es español.
 - El soporte para inglés ya está preparado desde el bootstrap.
 - El frontend ya arranca sobre la sesión ligera por nickname del backend.
-- Las siguientes fases conectarán matchmaking, catálogo y batalla sobre esta base autenticada.
+- El login devuelve `sessionToken` y `reconnectToken`.
+- El nickname sólo queda reservado mientras la sesión siga activa.
+- `/matchmaking` redirige a `/battle`; la experiencia principal de combate vive en una sola pantalla.
+- La búsqueda de rival solo se dispara por acción explícita del usuario:
+  - click en `Jugar` desde la card de batalla en home
+  - click en `Buscar rival` dentro de `/battle`
+- Recargar `/battle` no debe iniciar matchmaking automáticamente.
+- Si existe `currentLobbyId` o `currentBattleId`, la home muestra `Reanudar`.
+- Si una batalla entra en pausa por desconexión, el frontend muestra overlay de reconexión usando `reconnectDeadlineAt`.
+- Los snapshots de lobby y batalla consumen `sprite` y `team[]` completa del backend para renderizar:
+  - Pokémon activos en arena
+  - equipo del jugador
+  - estado visual de Pokémon derrotados (`KO`)

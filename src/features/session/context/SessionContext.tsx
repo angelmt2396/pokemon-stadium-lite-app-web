@@ -13,14 +13,14 @@ import {
   readPersistedSession,
 } from '@/lib/storage/session-storage';
 import { closeNicknameSession, createNicknameSession, getCurrentNicknameSession } from '@/features/session/services/session-api';
-import type { SessionSnapshot, SessionStatus } from '@/features/session/types';
+import type { SessionPayload, SessionSnapshot, SessionStatus } from '@/features/session/types';
 import { getSocketClient } from '@/lib/socket/client';
 
 type SessionContextValue = {
   status: SessionStatus;
   session: SessionSnapshot | null;
   errorMessage: string | null;
-  login: (nickname: string) => Promise<void>;
+  login: (nickname: string) => Promise<SessionPayload>;
   logout: () => Promise<void>;
   clearSessionError: () => void;
   updateRuntimeSession: (values: Partial<Pick<SessionSnapshot, 'reconnectToken' | 'currentLobbyId' | 'currentBattleId' | 'playerStatus'>>) => void;
@@ -89,21 +89,18 @@ export function SessionProvider({ children }: PropsWithChildren) {
       });
   }, []);
 
-  const login = useCallback(async (nickname: string) => {
-    setErrorMessage(null);
-    const payload = await createNicknameSession({ nickname });
-
+  const applySessionPayload = useCallback((payload: SessionPayload) => {
     if (!payload.sessionToken) {
       throw new Error('Session token was not returned');
     }
 
-    const nextSession = mapSessionSnapshot(payload.sessionToken, payload, null);
+    const nextSession = mapSessionSnapshot(payload.sessionToken, payload, payload.reconnectToken ?? null);
 
     persistSession({
       sessionToken: payload.sessionToken,
       playerId: payload.playerId,
       nickname: payload.nickname,
-      reconnectToken: null,
+      reconnectToken: payload.reconnectToken ?? null,
       lobbyId: payload.currentLobbyId,
       battleId: payload.currentBattleId,
     });
@@ -111,6 +108,13 @@ export function SessionProvider({ children }: PropsWithChildren) {
     setSession(nextSession);
     setStatus('authenticated');
   }, []);
+
+  const login = useCallback(async (nickname: string) => {
+    setErrorMessage(null);
+    const payload = await createNicknameSession({ nickname });
+    applySessionPayload(payload);
+    return payload;
+  }, [applySessionPayload]);
 
   const logout = useCallback(async () => {
     if (!session) {
@@ -163,7 +167,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       errorMessage,
       login: async (nickname: string) => {
         try {
-          await login(nickname);
+          return await login(nickname);
         } catch (error) {
           setErrorMessage(error instanceof Error ? error.message : 'Unexpected session error');
           throw error;

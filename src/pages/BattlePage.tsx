@@ -12,12 +12,21 @@ import { cn } from '@/lib/utils/cn';
 const MATCH_FOUND_DURATION_MS = 1600;
 const TEAM_ASSIGNED_DURATION_MS = 5000;
 const BATTLE_START_DURATION_MS = 1800;
+const TURN_ACTION_DURATION_MS = 1700;
+const BATTLE_RECONNECT_GRACE_MS = 15_000;
 
 type CinematicStage =
   | { id: string; type: 'match-found'; opponentName: string }
   | { id: string; type: 'team-assigned'; teamNames: string[] }
   | { id: string; type: 'battle-start'; ownLabel: string; opponentLabel: string }
-  | { id: string; type: 'battle-result'; didWin: boolean; opponentName: string };
+  | { id: string; type: 'battle-result'; didWin: boolean; opponentName: string }
+  | {
+      id: string;
+      type: 'turn-action';
+      title: string;
+      description: string;
+      tone: 'attack' | 'impact' | 'ko';
+    };
 
 type BattleLocationState = {
   startSearch?: boolean;
@@ -40,6 +49,10 @@ function getCinematicDuration(type: CinematicStage['type']) {
     return BATTLE_START_DURATION_MS;
   }
 
+  if (type === 'turn-action') {
+    return TURN_ACTION_DURATION_MS;
+  }
+
   if (type === 'battle-result') {
     return null;
   }
@@ -49,6 +62,28 @@ function getCinematicDuration(type: CinematicStage['type']) {
 
 function getTeamSignature(team: Array<{ pokemonId: number; name: string }>) {
   return team.map((pokemon) => pokemon.pokemonId).join(',');
+}
+
+function findBattlePokemonName(
+  players: Array<{
+    playerId: string;
+    activePokemon: { pokemonId: number; name: string } | null;
+    team: Array<{ pokemonId: number; name: string }>;
+  }>,
+  playerId: string,
+  pokemonId: number,
+) {
+  const player = players.find((item) => item.playerId === playerId);
+
+  if (!player) {
+    return null;
+  }
+
+  if (player.activePokemon?.pokemonId === pokemonId) {
+    return player.activePokemon.name;
+  }
+
+  return player.team.find((pokemon) => pokemon.pokemonId === pokemonId)?.name ?? null;
 }
 
 export function BattlePage() {
@@ -62,6 +97,7 @@ export function BattlePage() {
   const shownTeamRevealRef = useRef<string | null>(null);
   const shownBattleIntroRef = useRef<string | null>(null);
   const shownBattleResultRef = useRef<string | null>(null);
+  const shownTurnActionRef = useRef<string | null>(null);
   const {
     actionError,
     actionPending,
@@ -73,6 +109,7 @@ export function BattlePage() {
     connectionState,
     dismissBattleResult,
     flowState,
+    latestTurnResult,
     lobbyStatus,
     ownPlayer,
     opponent,
@@ -82,6 +119,8 @@ export function BattlePage() {
   } = useBattleLobby();
   const [cinematicQueue, setCinematicQueue] = useState<CinematicStage[]>([]);
   const [activeCinematic, setActiveCinematic] = useState<CinematicStage | null>(null);
+  const [pauseFallbackDeadlineAt, setPauseFallbackDeadlineAt] = useState<number | null>(null);
+  const [pauseRemainingMs, setPauseRemainingMs] = useState<number | null>(null);
   const locationState = (location.state ?? null) as BattleLocationState | null;
 
   const ownBattlePlayer =
@@ -91,13 +130,27 @@ export function BattlePage() {
   const ownActivePokemon = ownBattlePlayer?.activePokemon ?? null;
   const opponentActivePokemon = opponentBattlePlayer?.activePokemon ?? null;
   const isBattleFinished = Boolean(battleResult);
-  const isPlayerTurn = flowState === 'battling' && battleState?.currentTurnPlayerId === session?.playerId;
+  const isBattlePaused = flowState === 'battling' && battleState?.status === 'paused';
+  const isPlayerTurn =
+    flowState === 'battling' && battleState?.status === 'battling' && battleState.currentTurnPlayerId === session?.playerId;
   const canAttack = Boolean(
     flowState === 'battling' &&
+      battleState?.status === 'battling' &&
       ownActivePokemon &&
       !actionPending &&
       !isBattleFinished &&
       (battleState?.currentTurnPlayerId === null || battleState?.currentTurnPlayerId === session?.playerId),
+  );
+  const reconnectDeadlineMs = battleState?.reconnectDeadlineAt ? new Date(battleState.reconnectDeadlineAt).getTime() : null;
+  const showReconnectOverlay = Boolean(
+    flowState === 'battling' &&
+      !isBattleFinished &&
+      (isBattlePaused || (connectionState === 'disconnected' && session?.currentBattleId)),
+  );
+  const isSelfReconnectState = Boolean(
+    showReconnectOverlay &&
+      (connectionState === 'disconnected' ||
+        battleState?.disconnectedPlayerId === session?.playerId),
   );
   const ownHpPercent = ownActivePokemon ? Math.max(8, (ownActivePokemon.currentHp / ownActivePokemon.hp) * 100) : 74;
   const opponentHpPercent = opponentActivePokemon
@@ -105,12 +158,15 @@ export function BattlePage() {
     : opponent
       ? 54
       : 16;
+  const battleResultReason = battleResult?.reason ?? null;
   const teamActionLabel = flowState === 'matched' && team.length === 0
     ? t('team.actions.autoAssigning')
     : flowState === 'matched' && team.length === 3 && !ownPlayer?.ready
       ? t('team.actions.autoReady')
       : isBattleFinished
         ? t('team.actions.finished')
+        : isBattlePaused
+          ? t('team.actions.paused')
         : ownPlayer?.ready
           ? t('team.actions.readyDone')
           : team.length === 3
@@ -119,6 +175,8 @@ export function BattlePage() {
   const arenaBadgeLabel =
     isBattleFinished
       ? t('arena.finishedBadge')
+      : isBattlePaused
+        ? t('arena.pauseBadge')
       : flowState === 'battling'
         ? battleState?.currentTurnPlayerId === session?.playerId
           ? t('arena.yourTurn')
@@ -126,7 +184,9 @@ export function BattlePage() {
         : t('arena.standbyStatus');
 
   const heroBadgeTone =
-    flowState === 'matched' || flowState === 'battling'
+    isBattlePaused
+      ? 'warning'
+      : flowState === 'matched' || flowState === 'battling'
       ? 'success'
       : flowState === 'searching'
         ? 'warning'
@@ -135,6 +195,8 @@ export function BattlePage() {
   const heroBadgeLabel =
     isBattleFinished
       ? t('lobby.badges.finished')
+      : isBattlePaused
+        ? t('lobby.badges.paused')
       : flowState === 'matched'
         ? t('lobby.badges.matched')
         : flowState === 'battling'
@@ -160,8 +222,16 @@ export function BattlePage() {
   const statusDescription =
     isBattleFinished
       ? battleResult?.winnerPlayerId === session?.playerId
-        ? t('status.descriptions.won')
-        : t('status.descriptions.lost')
+        ? battleResultReason === 'disconnect_timeout'
+          ? t('status.descriptions.wonByDisconnect')
+          : t('status.descriptions.won')
+        : battleResultReason === 'disconnect_timeout'
+          ? t('status.descriptions.lostByDisconnect')
+          : t('status.descriptions.lost')
+      : isBattlePaused
+        ? isSelfReconnectState
+          ? t('status.descriptions.reconnectingSelf')
+          : t('status.descriptions.reconnectingOpponent')
       : flowState === 'matched'
         ? t('status.descriptions.matched', { nickname: opponent?.nickname ?? t('status.fallbackOpponent') })
         : flowState === 'battling'
@@ -175,6 +245,8 @@ export function BattlePage() {
       ? t('lobby.searchingTitle')
       : flowState === 'matched'
         ? t('lobby.matchedTitle')
+        : isBattlePaused
+          ? t('lobby.pausedTitle')
         : flowState === 'battling'
           ? t('lobby.battlingTitle')
           : t('lobby.title');
@@ -184,6 +256,10 @@ export function BattlePage() {
       ? t('lobby.searchingDescription')
       : flowState === 'matched'
         ? t('lobby.matchedDescription')
+        : isBattlePaused
+          ? isSelfReconnectState
+            ? t('lobby.pausedDescriptionSelf')
+            : t('lobby.pausedDescriptionOpponent')
         : flowState === 'battling'
           ? t('lobby.battlingDescription')
           : statusDescription;
@@ -249,6 +325,40 @@ export function BattlePage() {
       return [...current, stage];
     });
   }, []);
+
+  useEffect(() => {
+    if (connectionState === 'disconnected' && session?.currentBattleId && !battleResult && !battleState?.reconnectDeadlineAt) {
+      setPauseFallbackDeadlineAt((current) => current ?? Date.now() + BATTLE_RECONNECT_GRACE_MS);
+      return;
+    }
+
+    setPauseFallbackDeadlineAt(null);
+  }, [battleResult, battleState?.reconnectDeadlineAt, connectionState, session?.currentBattleId]);
+
+  useEffect(() => {
+    if (!showReconnectOverlay) {
+      setPauseRemainingMs(null);
+      return;
+    }
+
+    const activeDeadline = reconnectDeadlineMs ?? pauseFallbackDeadlineAt;
+
+    if (!activeDeadline) {
+      setPauseRemainingMs(null);
+      return;
+    }
+
+    const syncRemaining = () => {
+      setPauseRemainingMs(Math.max(0, activeDeadline - Date.now()));
+    };
+
+    syncRemaining();
+    const intervalId = window.setInterval(syncRemaining, 250);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [pauseFallbackDeadlineAt, reconnectDeadlineMs, showReconnectOverlay]);
 
   useEffect(() => {
     if (!activeCinematic && cinematicQueue.length) {
@@ -373,6 +483,96 @@ export function BattlePage() {
       opponentName: opponent?.nickname ?? t('status.fallbackOpponent'),
     });
   }, [battleResult, enqueueCinematic, opponent?.nickname, session?.playerId, t]);
+
+  useEffect(() => {
+    if (!latestTurnResult || !battleState?.players.length || !session?.playerId) {
+      return;
+    }
+
+    const turnKey = [
+      latestTurnResult.battleId,
+      latestTurnResult.attackerPlayerId,
+      latestTurnResult.defenderPlayerId,
+      latestTurnResult.attackerPokemonId,
+      latestTurnResult.defenderPokemonId,
+      latestTurnResult.damage,
+      latestTurnResult.defenderRemainingHp,
+      latestTurnResult.defenderDefeated ? 'ko' : 'live',
+    ].join(':');
+
+    if (shownTurnActionRef.current === turnKey) {
+      return;
+    }
+
+    shownTurnActionRef.current = turnKey;
+
+    const attackerPokemonName =
+      findBattlePokemonName(
+        battleState.players,
+        latestTurnResult.attackerPlayerId,
+        latestTurnResult.attackerPokemonId,
+      ) ?? t('preview.trainerFallback');
+    const defenderPokemonName =
+      findBattlePokemonName(
+        battleState.players,
+        latestTurnResult.defenderPlayerId,
+        latestTurnResult.defenderPokemonId,
+      ) ?? t('arena.unknownOpponent');
+    const isAttacker = latestTurnResult.attackerPlayerId === session.playerId;
+    const damagePayload = {
+      pokemon: defenderPokemonName,
+      damage: latestTurnResult.damage,
+    };
+
+    if (isAttacker) {
+      enqueueCinematic({
+        id: `${turnKey}:attack`,
+        type: 'turn-action',
+        title: t('cinematics.turnAction.attackTitle'),
+        description: t('cinematics.turnAction.attackDescription', {
+          pokemon: attackerPokemonName,
+        }),
+        tone: 'attack',
+      });
+      enqueueCinematic({
+        id: `${turnKey}:impact`,
+        type: 'turn-action',
+        title: latestTurnResult.defenderDefeated
+          ? t('cinematics.turnAction.koTitle')
+          : t('cinematics.turnAction.damageDealtTitle'),
+        description: latestTurnResult.defenderDefeated
+          ? t('cinematics.turnAction.damageDealtKoDescription', damagePayload)
+          : t('cinematics.turnAction.damageDealtDescription', damagePayload),
+        tone: latestTurnResult.defenderDefeated ? 'ko' : 'impact',
+      });
+      return;
+    }
+
+    if (latestTurnResult.defenderPlayerId !== session.playerId) {
+      return;
+    }
+
+    enqueueCinematic({
+      id: `${turnKey}:received`,
+      type: 'turn-action',
+      title: t('cinematics.turnAction.attackReceivedTitle'),
+      description: t('cinematics.turnAction.attackReceivedDescription', {
+        pokemon: attackerPokemonName,
+      }),
+      tone: 'impact',
+    });
+    enqueueCinematic({
+      id: `${turnKey}:damage`,
+      type: 'turn-action',
+      title: latestTurnResult.defenderDefeated
+        ? t('cinematics.turnAction.koTitle')
+        : t('cinematics.turnAction.damageReceivedTitle'),
+      description: latestTurnResult.defenderDefeated
+        ? t('cinematics.turnAction.damageReceivedKoDescription', damagePayload)
+        : t('cinematics.turnAction.damageReceivedDescription', damagePayload),
+      tone: latestTurnResult.defenderDefeated ? 'ko' : 'impact',
+    });
+  }, [battleState?.players, enqueueCinematic, latestTurnResult, session?.playerId, t]);
 
   const handleCloseBattleResult = useCallback(() => {
     setActiveCinematic((current) => (current?.type === 'battle-result' ? null : current));
@@ -619,7 +819,11 @@ export function BattlePage() {
             </div>
 
             <div className="rounded-full border border-emerald-200/80 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800">
-              {isPlayerTurn ? t('lobby.yourTurnLabel') : t('lobby.opponentTurnLabel')}
+              {isBattlePaused
+                ? t('lobby.pauseStatusLabel')
+                : isPlayerTurn
+                  ? t('lobby.yourTurnLabel')
+                  : t('lobby.opponentTurnLabel')}
             </div>
           </div>
         </div>
@@ -640,10 +844,10 @@ export function BattlePage() {
 
           <div className="grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-center">
             <div className="rounded-[1.9rem] border border-white/8 bg-white/6 p-5">
-              <div className="flex items-center justify-between gap-4">
+              <div className="grid min-h-[240px] grid-rows-[auto_1fr_auto] gap-5">
                 <div className="min-w-0">
                   <p className="text-xs uppercase tracking-[0.16em] text-white/45">{t('arena.playerOne')}</p>
-                  <h4 className="mt-3 text-2xl font-bold">{ownActivePokemon?.name ?? session?.nickname ?? t('arena.playerOnePokemon')}</h4>
+                  <h4 className="mt-3 break-words text-2xl font-bold">{ownActivePokemon?.name ?? session?.nickname ?? t('arena.playerOnePokemon')}</h4>
                   <p className="mt-2 text-sm text-white/60">
                     {ownActivePokemon
                       ? t('arena.hpLabel', {
@@ -653,19 +857,25 @@ export function BattlePage() {
                       : t('arena.waitingStart')}
                   </p>
                 </div>
-                {ownActivePokemon?.sprite ? (
-                  <img
-                    alt={ownActivePokemon.name}
-                    className={cn(
-                      'h-28 w-28 shrink-0 object-contain drop-shadow-[0_16px_24px_rgba(34,211,238,0.2)] transition',
-                      ownActivePokemon.defeated ? 'grayscale opacity-45' : '',
-                    )}
-                    src={ownActivePokemon.sprite}
-                  />
-                ) : null}
-              </div>
-              <div className="mt-5 h-3 rounded-full bg-white/10">
-                <div className="h-3 rounded-full bg-gradient-to-r from-emerald-300 to-cyan-300 transition-all" style={{ width: `${ownHpPercent}%` }} />
+
+                <div className="flex h-40 items-center justify-center rounded-[1.6rem] border border-white/8 bg-white/6 px-3 py-4">
+                  {ownActivePokemon?.sprite ? (
+                    <img
+                      alt={ownActivePokemon.name}
+                      className={cn(
+                        'h-full w-full object-contain drop-shadow-[0_16px_24px_rgba(34,211,238,0.2)] transition',
+                        ownActivePokemon.defeated ? 'grayscale opacity-45' : '',
+                      )}
+                      src={ownActivePokemon.sprite}
+                    />
+                  ) : (
+                    <div className="h-full w-full rounded-[1.2rem] border border-dashed border-white/10 bg-white/4" />
+                  )}
+                </div>
+
+                <div className="h-3 rounded-full bg-white/10">
+                  <div className="h-3 rounded-full bg-gradient-to-r from-emerald-300 to-cyan-300 transition-all" style={{ width: `${ownHpPercent}%` }} />
+                </div>
               </div>
             </div>
 
@@ -678,10 +888,10 @@ export function BattlePage() {
             </div>
 
             <div className="rounded-[1.9rem] border border-white/8 bg-white/8 p-5">
-              <div className="flex items-center justify-between gap-4">
+              <div className="grid min-h-[240px] grid-rows-[auto_1fr_auto] gap-5">
                 <div className="min-w-0">
                   <p className="text-xs uppercase tracking-[0.16em] text-white/45">{t('arena.playerTwo')}</p>
-                  <h4 className="mt-3 text-2xl font-bold">{opponentActivePokemon?.name ?? opponent?.nickname ?? t('arena.unknownOpponent')}</h4>
+                  <h4 className="mt-3 break-words text-2xl font-bold">{opponentActivePokemon?.name ?? opponent?.nickname ?? t('arena.unknownOpponent')}</h4>
                   <p className="mt-2 text-sm text-white/60">
                     {opponentActivePokemon
                       ? t('arena.hpLabel', {
@@ -691,19 +901,25 @@ export function BattlePage() {
                       : t('arena.waitingStart')}
                   </p>
                 </div>
-                {opponentActivePokemon?.sprite ? (
-                  <img
-                    alt={opponentActivePokemon.name}
-                    className={cn(
-                      'h-28 w-28 shrink-0 object-contain drop-shadow-[0_16px_24px_rgba(217,70,239,0.2)] transition',
-                      opponentActivePokemon.defeated ? 'grayscale opacity-45' : '',
-                    )}
-                    src={opponentActivePokemon.sprite}
-                  />
-                ) : null}
-              </div>
-              <div className="mt-5 h-3 rounded-full bg-white/10">
-                <div className="h-3 rounded-full bg-gradient-to-r from-cyan-300 to-fuchsia-300 transition-all" style={{ width: `${opponentHpPercent}%` }} />
+
+                <div className="flex h-40 items-center justify-center rounded-[1.6rem] border border-white/8 bg-white/6 px-3 py-4">
+                  {opponentActivePokemon?.sprite ? (
+                    <img
+                      alt={opponentActivePokemon.name}
+                      className={cn(
+                        'h-full w-full object-contain drop-shadow-[0_16px_24px_rgba(217,70,239,0.2)] transition',
+                        opponentActivePokemon.defeated ? 'grayscale opacity-45' : '',
+                      )}
+                      src={opponentActivePokemon.sprite}
+                    />
+                  ) : (
+                    <div className="h-full w-full rounded-[1.2rem] border border-dashed border-white/10 bg-white/4" />
+                  )}
+                </div>
+
+                <div className="h-3 rounded-full bg-white/10">
+                  <div className="h-3 rounded-full bg-gradient-to-r from-cyan-300 to-fuchsia-300 transition-all" style={{ width: `${opponentHpPercent}%` }} />
+                </div>
               </div>
             </div>
           </div>
@@ -715,6 +931,10 @@ export function BattlePage() {
                   ? battleResult?.winnerPlayerId === session?.playerId
                     ? t('arena.result.win')
                     : t('arena.result.lose')
+                  : isBattlePaused
+                    ? isSelfReconnectState
+                      ? t('arena.pauseSelf')
+                      : t('arena.pauseOpponent')
                   : canAttack
                     ? t('arena.attackReady')
                     : t('arena.waitingTurnState')}
@@ -758,10 +978,10 @@ export function BattlePage() {
                     pokemon?.defeated ? 'opacity-70' : '',
                   )}
                 >
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="grid min-h-[220px] grid-rows-[auto_1fr_auto] gap-4">
                     <div className="min-w-0">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{t('team.slotLabel', { slot: index + 1 })}</p>
-                      <p className="mt-3 text-base font-bold text-ink">{pokemon?.name ?? t('team.slotWaiting')}</p>
+                      <p className="mt-3 break-words text-base font-bold text-ink">{pokemon?.name ?? t('team.slotWaiting')}</p>
                       {pokemon && pokemon.currentHp !== null && pokemon.hp !== null ? (
                         <p className="mt-1 text-xs font-medium text-slate-500">
                           {t('arena.hpLabel', {
@@ -771,19 +991,23 @@ export function BattlePage() {
                         </p>
                       ) : null}
                     </div>
-                    {pokemon?.sprite ? (
-                      <img
-                        alt={pokemon.name}
-                        className={cn(
-                          'h-16 w-16 shrink-0 object-contain drop-shadow-[0_10px_14px_rgba(15,23,42,0.16)] transition',
-                          pokemon.defeated ? 'grayscale opacity-45' : '',
-                        )}
-                        src={pokemon.sprite}
-                      />
-                    ) : null}
-                  </div>
-                  {pokemon ? (
-                    <div className="mt-4 space-y-3">
+
+                    <div className="flex items-center justify-center rounded-[1.2rem] border border-slate-100 bg-slate-50/80 px-2 py-3">
+                      {pokemon?.sprite ? (
+                        <img
+                          alt={pokemon.name}
+                          className={cn(
+                            'h-20 w-20 object-contain drop-shadow-[0_10px_14px_rgba(15,23,42,0.16)] transition',
+                            pokemon.defeated ? 'grayscale opacity-45' : '',
+                          )}
+                          src={pokemon.sprite}
+                        />
+                      ) : (
+                        <div className="h-20 w-20 rounded-[1rem] border border-dashed border-slate-200 bg-white" />
+                      )}
+                    </div>
+
+                    {pokemon ? (
                       <div className="flex items-center gap-2">
                         {pokemon.isActive ? (
                           <span className="rounded-full bg-cyan-50 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-cyan-700">
@@ -796,19 +1020,20 @@ export function BattlePage() {
                           </span>
                         ) : null}
                       </div>
-                      {pokemon.currentHp !== null && pokemon.hp !== null ? (
-                        <div className="h-2 rounded-full bg-slate-100">
-                          <div
-                            className={cn(
-                              'h-2 rounded-full transition-all',
-                              pokemon.defeated ? 'bg-slate-300' : 'bg-gradient-to-r from-emerald-300 to-cyan-300',
-                            )}
-                            style={{ width: `${Math.max(0, (pokemon.currentHp / pokemon.hp) * 100)}%` }}
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
+                    ) : null}
+
+                    {pokemon && pokemon.currentHp !== null && pokemon.hp !== null ? (
+                      <div className="h-2 rounded-full bg-slate-100">
+                        <div
+                          className={cn(
+                            'h-2 rounded-full transition-all',
+                            pokemon.defeated ? 'bg-slate-300' : 'bg-gradient-to-r from-emerald-300 to-cyan-300',
+                          )}
+                          style={{ width: `${Math.max(0, (pokemon.currentHp / pokemon.hp) * 100)}%` }}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               ))}
             </div>
@@ -850,9 +1075,14 @@ export function BattlePage() {
 
       {activeCinematic ? (
         <div
-          className={`fixed inset-0 z-50 flex items-center justify-center px-4 backdrop-blur-md ${
-            activeCinematic.type === 'battle-start' ? 'pointer-events-none bg-slate-950/52' : 'bg-slate-950/72'
-          }`}
+          className={cn(
+            'fixed inset-0 z-50 flex justify-center px-4',
+            activeCinematic.type === 'turn-action'
+              ? 'items-center bg-slate-950/58 backdrop-blur-md'
+              : activeCinematic.type === 'battle-start'
+                ? 'pointer-events-none items-center bg-slate-950/52 backdrop-blur-md'
+                : 'items-center bg-slate-950/72 backdrop-blur-md',
+          )}
         >
           {activeCinematic.type === 'match-found' || activeCinematic.type === 'team-assigned' ? (
             <button
@@ -865,12 +1095,71 @@ export function BattlePage() {
             />
           ) : null}
           <div
-            className={`relative z-10 w-full max-w-3xl overflow-hidden rounded-[2rem] border border-white/12 bg-[linear-gradient(180deg,_rgba(12,18,38,0.98),_rgba(20,30,62,0.96))] px-8 py-10 text-white shadow-[0_30px_90px_rgba(15,23,42,0.5)] ${
-              activeCinematic.type === 'battle-start' ? 'pointer-events-none' : 'pointer-events-auto'
-            }`}
+            className={cn(
+              'relative z-10 overflow-hidden text-white',
+              activeCinematic.type === 'turn-action'
+                ? 'w-full max-w-xl rounded-[1.8rem] border px-6 py-6 shadow-[0_30px_80px_rgba(15,23,42,0.42)]'
+                : 'w-full max-w-3xl rounded-[2rem] border border-white/12 bg-[linear-gradient(180deg,_rgba(12,18,38,0.98),_rgba(20,30,62,0.96))] px-8 py-10 shadow-[0_30px_90px_rgba(15,23,42,0.5)]',
+              activeCinematic.type === 'battle-start' ? 'pointer-events-none' : 'pointer-events-auto',
+              activeCinematic.type === 'turn-action' && activeCinematic.tone === 'attack'
+                ? 'border-cyan-200/70 bg-[linear-gradient(180deg,_rgba(236,254,255,0.98),_rgba(248,250,252,0.96))] text-slate-950'
+                : '',
+              activeCinematic.type === 'turn-action' && activeCinematic.tone === 'impact'
+                ? 'border-amber-200/80 bg-[linear-gradient(180deg,_rgba(255,251,235,0.98),_rgba(255,255,255,0.96))] text-slate-950'
+                : '',
+              activeCinematic.type === 'turn-action' && activeCinematic.tone === 'ko'
+                ? 'border-rose-200/80 bg-[linear-gradient(180deg,_rgba(255,241,242,0.98),_rgba(255,255,255,0.96))] text-slate-950'
+                : '',
+            )}
           >
-            <div className="absolute -right-10 top-8 h-40 w-40 rounded-full border border-cyan-300/12" />
-            <div className="absolute -left-8 bottom-6 h-28 w-28 rounded-full bg-cyan-400/12 blur-3xl" />
+            <div
+              className={cn(
+                'absolute -right-10 top-8 h-40 w-40 rounded-full',
+                activeCinematic.type === 'turn-action'
+                  ? 'border border-current/10 opacity-60'
+                  : 'border border-cyan-300/12',
+              )}
+            />
+            <div
+              className={cn(
+                'absolute -left-8 bottom-6 h-28 w-28 blur-3xl',
+                activeCinematic.type === 'turn-action'
+                  ? activeCinematic.tone === 'attack'
+                    ? 'rounded-full bg-cyan-300/18'
+                    : activeCinematic.tone === 'impact'
+                      ? 'rounded-full bg-amber-300/20'
+                      : 'rounded-full bg-rose-300/18'
+                  : 'rounded-full bg-cyan-400/12',
+              )}
+            />
+
+            {activeCinematic.type === 'turn-action' ? (
+              <div className="relative space-y-4 text-center">
+                <div className="flex justify-center">
+                  <StatusBadge
+                    label={activeCinematic.title}
+                    tone={
+                      activeCinematic.tone === 'attack'
+                        ? 'info'
+                        : activeCinematic.tone === 'ko'
+                          ? 'warning'
+                          : 'success'
+                    }
+                    className={cn(
+                      activeCinematic.tone === 'attack' ? 'bg-cyan-100 text-cyan-800' : '',
+                      activeCinematic.tone === 'impact' ? 'bg-amber-100 text-amber-800' : '',
+                      activeCinematic.tone === 'ko' ? 'bg-rose-100 text-rose-800' : '',
+                    )}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    {t('cinematics.turnAction.liveLabel')}
+                  </p>
+                  <p className="mx-auto max-w-2xl text-xl font-semibold leading-8 text-slate-800">{activeCinematic.description}</p>
+                </div>
+              </div>
+            ) : null}
 
             {activeCinematic.type === 'match-found' ? (
               <div className="space-y-6 text-center">
@@ -939,7 +1228,11 @@ export function BattlePage() {
                     {activeCinematic.didWin ? t('cinematics.resultWinTitle') : t('cinematics.resultLoseTitle')}
                   </h2>
                   <p className="mx-auto mt-4 max-w-xl text-base text-white/70">
-                    {t('cinematics.resultDescription', { opponent: activeCinematic.opponentName })}
+                    {battleResult?.reason === 'disconnect_timeout'
+                      ? activeCinematic.didWin
+                        ? t('cinematics.resultDisconnectWinDescription', { opponent: activeCinematic.opponentName })
+                        : t('cinematics.resultDisconnectLoseDescription', { opponent: activeCinematic.opponentName })
+                      : t('cinematics.resultDescription', { opponent: activeCinematic.opponentName })}
                   </p>
                 </div>
                 <div className="grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-center">
@@ -966,6 +1259,50 @@ export function BattlePage() {
 
             {activeCinematic.type === 'match-found' || activeCinematic.type === 'team-assigned' ? (
               <p className="mt-8 text-center text-xs font-semibold uppercase tracking-[0.18em] text-white/35">{t('cinematics.skip')}</p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {showReconnectOverlay ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/58 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-xl rounded-[2rem] border border-white/12 bg-[linear-gradient(180deg,_rgba(12,18,38,0.98),_rgba(20,30,62,0.96))] px-8 py-8 text-white shadow-[0_30px_90px_rgba(15,23,42,0.5)]">
+            <div className="flex items-center justify-between gap-4">
+              <StatusBadge
+                label={isSelfReconnectState ? t('pause.badges.self') : t('pause.badges.opponent')}
+                tone={isSelfReconnectState ? 'warning' : 'info'}
+                className={isSelfReconnectState ? 'bg-amber-300/16 text-amber-100' : 'bg-cyan-300/16 text-cyan-100'}
+              />
+              {pauseRemainingMs !== null ? (
+                <span className="rounded-full border border-white/10 bg-white/8 px-4 py-2 text-sm font-bold tracking-[0.12em] text-white/90">
+                  {t('pause.timerLabel')}: {formatElapsedTime(pauseRemainingMs)}
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-6 space-y-3">
+              <h2 className="text-4xl font-black tracking-tight">
+                {isSelfReconnectState ? t('pause.selfTitle') : t('pause.opponentTitle')}
+              </h2>
+              <p className="text-base text-white/70">
+                {isSelfReconnectState
+                  ? t('pause.selfDescription')
+                  : t('pause.opponentDescription', { opponent: opponent?.nickname ?? t('status.fallbackOpponent') })}
+              </p>
+            </div>
+            {pauseRemainingMs !== null ? (
+              <div className="mt-6">
+                <div className="h-3 rounded-full bg-white/10">
+                  <div
+                    className={cn(
+                      'h-3 rounded-full transition-all',
+                      isSelfReconnectState ? 'bg-gradient-to-r from-amber-300 to-orange-400' : 'bg-gradient-to-r from-cyan-300 to-fuchsia-300',
+                    )}
+                    style={{
+                      width: `${Math.max(0, Math.min(100, (pauseRemainingMs / BATTLE_RECONNECT_GRACE_MS) * 100))}%`,
+                    }}
+                  />
+                </div>
+              </div>
             ) : null}
           </div>
         </div>
