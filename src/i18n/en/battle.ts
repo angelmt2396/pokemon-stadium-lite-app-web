@@ -90,6 +90,9 @@ export const battleEn = {
       damageReceivedDescription: 'Your {{pokemon}} lost {{damage}} HP.',
       damageReceivedKoDescription: 'Your {{pokemon}} lost {{damage}} HP and was knocked out.',
       koTitle: 'Pokemon knocked out',
+      switchTitle: 'New active pokemon',
+      switchDescriptionSelf: '{{pokemon}} enters to continue the battle.',
+      switchDescriptionOpponent: '{{pokemon}} enters the battle for the opponent.',
     },
   },
   pause: {
@@ -174,6 +177,13 @@ export const battleEn = {
     attackReady: 'Your pokemon is ready to attack.',
     attackAction: 'Attack',
     attackPending: 'Attacking...',
+    attackNow: 'Attack now',
+    attackNowDescription: 'Your pokemon has the initiative. Execute the next hit.',
+    underAttack: 'Under pressure',
+    underAttackDescription: 'Stay alert. The opponent is resolving their turn.',
+    pauseLiveDescription: 'The arena is frozen while the reconnect is being resolved.',
+    damageTaken: '-{{damage}} HP',
+    knockedOut: 'KO',
     hpLabel: 'HP {{currentHp}} / {{hp}}',
     result: {
       win: 'Victory. Your team won in the arena.',

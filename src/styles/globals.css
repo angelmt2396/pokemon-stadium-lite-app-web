@@ -10,13 +10,16 @@
   }
 
   html {
+    min-height: 100%;
     font-family: "Trebuchet MS", "Segoe UI", sans-serif;
     scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
   }
 
   body {
     margin: 0;
     min-height: 100vh;
+    min-height: 100dvh;
     color: #101828;
     background:
       radial-gradient(circle at top, rgba(255, 228, 167, 0.9), rgba(255, 255, 255, 0) 30%),
@@ -39,18 +42,116 @@
 
 @layer components {
   .page-container {
-    @apply mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8;
+    @apply mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8;
   }
 
   .panel-surface {
-    @apply rounded-[2rem] border border-white/70 bg-white/85 p-6 shadow-[0_18px_50px_rgba(16,24,40,0.12)] backdrop-blur;
+    @apply rounded-[1.5rem] border border-white/70 bg-white/85 p-4 shadow-[0_18px_50px_rgba(16,24,40,0.12)] backdrop-blur sm:rounded-[2rem] sm:p-6;
   }
 
   .game-frame {
-    @apply rounded-[2rem] border border-slate-900/8 bg-white/78 shadow-[0_24px_70px_rgba(16,24,40,0.16)] backdrop-blur;
+    @apply rounded-[1.5rem] border border-slate-900/8 bg-white/78 shadow-[0_24px_70px_rgba(16,24,40,0.16)] backdrop-blur sm:rounded-[2rem];
   }
 
   .menu-tile {
-    @apply relative overflow-hidden rounded-[2rem] border border-slate-900/8 bg-white/78 p-6 shadow-[0_24px_70px_rgba(16,24,40,0.16)] backdrop-blur transition duration-300 hover:-translate-y-1 hover:shadow-[0_30px_80px_rgba(16,24,40,0.18)];
+    @apply relative overflow-hidden rounded-[1.5rem] border border-slate-900/8 bg-white/78 p-4 shadow-[0_24px_70px_rgba(16,24,40,0.16)] backdrop-blur transition duration-300 hover:-translate-y-1 hover:shadow-[0_30px_80px_rgba(16,24,40,0.18)] sm:rounded-[2rem] sm:p-6;
+  }
+}
+
+@keyframes battle-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  20% {
+    transform: translateX(-6px);
+  }
+
+  40% {
+    transform: translateX(6px);
+  }
+
+  60% {
+    transform: translateX(-4px);
+  }
+
+  80% {
+    transform: translateX(4px);
+  }
+}
+
+@keyframes battle-damage-float {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.92);
+  }
+
+  18% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-22px) scale(1);
+  }
+}
+
+@keyframes battle-turn-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.06),
+      0 0 0 rgba(34, 211, 238, 0);
+  }
+
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(34, 211, 238, 0.34),
+      0 0 30px rgba(34, 211, 238, 0.18);
+  }
+}
+
+@keyframes hero-float-slow {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes hero-float-fast {
+  0%,
+  100% {
+    transform: translateY(0px) rotate(-2deg);
+  }
+
+  50% {
+    transform: translateY(-7px) rotate(1deg);
+  }
+}
+
+@layer utilities {
+  .battle-impact-card {
+    animation: battle-shake 0.55s ease;
+  }
+
+  .battle-damage-float {
+    animation: battle-damage-float 1.15s ease forwards;
+  }
+
+  .battle-turn-glow {
+    animation: battle-turn-glow 1.2s ease-in-out infinite;
+  }
+
+  .battle-hero-float-slow {
+    animation: hero-float-slow 4.6s ease-in-out infinite;
+  }
+
+  .battle-hero-float-fast {
+    animation: hero-float-fast 3.8s ease-in-out infinite;
   }
 }

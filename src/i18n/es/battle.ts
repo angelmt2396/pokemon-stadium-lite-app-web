@@ -90,6 +90,9 @@ export const battleEs = {
       damageReceivedDescription: 'Tu {{pokemon}} perdió {{damage}} PS.',
       damageReceivedKoDescription: 'Tu {{pokemon}} perdió {{damage}} PS y quedó fuera de combate.',
       koTitle: 'Pokemon debilitado',
+      switchTitle: 'Nuevo pokemon activo',
+      switchDescriptionSelf: '{{pokemon}} entra para continuar el combate.',
+      switchDescriptionOpponent: '{{pokemon}} entra al combate por el rival.',
     },
   },
   pause: {
@@ -174,6 +177,13 @@ export const battleEs = {
     attackReady: 'Tu pokemon está listo para atacar.',
     attackAction: 'Atacar',
     attackPending: 'Atacando...',
+    attackNow: 'Ataca ahora',
+    attackNowDescription: 'Tu pokemon tiene la iniciativa. Ejecuta el siguiente golpe.',
+    underAttack: 'Recibiendo presión',
+    underAttackDescription: 'Mantente atento. El rival está resolviendo su turno.',
+    pauseLiveDescription: 'La arena quedó congelada mientras se resuelve la reconexion.',
+    damageTaken: '-{{damage}} PS',
+    knockedOut: 'KO',
     hpLabel: 'PS {{currentHp}} / {{hp}}',
     result: {
       win: 'Victoria. Tu equipo se impuso en la arena.',
