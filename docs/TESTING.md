@@ -31,6 +31,8 @@ npm run test:coverage
 - restore de sesión persistida
 - login
 - logout
+- cierre automático de sesión idle al salir de la pestaña
+- invalidación local cuando el token expira
 - persistencia y limpieza de storage
 
 Archivo:
@@ -68,6 +70,11 @@ Cobertura actual visible de producto:
 - overlay de pausa por desconexión
 - resultado final por `disconnect_timeout`
 
+Cobertura relevante de runtime:
+
+- manejo de sesión expirada desde contexto/sockets
+- rehidratación visual de estados pausados o activos desde `BattlePage`
+
 Archivo:
 
 - [BattlePage.test.tsx](../src/pages/BattlePage.test.tsx)
@@ -103,6 +110,11 @@ Las siguientes áreas siguen siendo las prioridades naturales:
 - [CatalogPage.tsx](../src/pages/CatalogPage.tsx)
 - [HealthStatusCard.tsx](../src/features/health/components/HealthStatusCard.tsx)
 - e2e con Playwright
+
+Huecos todavía abiertos en batalla/sesión:
+
+- test directo del hook para reconexión con `sessionToken` renovado
+- escenario de reanudación completa de batalla al restaurar sesión con `currentBattleId + reconnectToken`
 
 ## Recomendaciones al agregar tests nuevos
 

@@ -42,7 +42,7 @@ const sessionPayload: SessionPayload = {
 };
 
 function SessionConsumer() {
-  const { status, session, login, logout, errorMessage } = useSession();
+  const { status, session, login, logout, invalidateSession, errorMessage } = useSession();
 
   return (
     <div>
@@ -66,12 +66,21 @@ function SessionConsumer() {
       >
         logout
       </button>
+      <button
+        type="button"
+        onClick={() => {
+          invalidateSession('Invalid or expired session token');
+        }}
+      >
+        invalidate
+      </button>
     </div>
   );
 }
 
 describe('SessionProvider', () => {
   beforeEach(() => {
+    localStorage.clear();
     createNicknameSessionMock.mockReset();
     getCurrentNicknameSessionMock.mockReset();
     closeNicknameSessionMock.mockReset();
@@ -142,6 +151,75 @@ describe('SessionProvider', () => {
       expect(closeNicknameSessionMock).toHaveBeenCalledWith('persisted-token');
       expect(disconnectMock).toHaveBeenCalled();
       expect(screen.getByText('status:unauthenticated')).toBeInTheDocument();
+      expect(localStorage.getItem(sessionStorageKeys.sessionToken)).toBeNull();
+    });
+  });
+
+  it('releases an idle session on page exit so the nickname can be reused', async () => {
+    localStorage.setItem(sessionStorageKeys.sessionToken, 'persisted-token');
+    getCurrentNicknameSessionMock.mockResolvedValue(sessionPayload);
+    closeNicknameSessionMock.mockResolvedValue({ closed: true });
+
+    renderWithProviders(
+      <SessionProvider>
+        <SessionConsumer />
+      </SessionProvider>,
+    );
+
+    expect(await screen.findByText('status:authenticated')).toBeInTheDocument();
+
+    window.dispatchEvent(new Event('pagehide'));
+
+    await waitFor(() => {
+      expect(closeNicknameSessionMock).toHaveBeenCalledWith('persisted-token', { keepalive: true });
+    });
+  });
+
+  it('does not release the session on page exit when the player still has an active lobby', async () => {
+    localStorage.setItem(sessionStorageKeys.sessionToken, 'persisted-token');
+    getCurrentNicknameSessionMock.mockResolvedValue({
+      ...sessionPayload,
+      currentLobbyId: 'lobby-1',
+      currentBattleId: null,
+      playerStatus: 'in_lobby',
+    });
+
+    renderWithProviders(
+      <SessionProvider>
+        <SessionConsumer />
+      </SessionProvider>,
+    );
+
+    expect(await screen.findByText('status:authenticated')).toBeInTheDocument();
+
+    window.dispatchEvent(new Event('pagehide'));
+
+    await waitFor(() => {
+      expect(closeNicknameSessionMock).not.toHaveBeenCalled();
+    });
+  });
+
+  it('invalidates the local session when the token expires', async () => {
+    localStorage.setItem(sessionStorageKeys.sessionToken, 'persisted-token');
+    localStorage.setItem(sessionStorageKeys.nickname, 'Ash');
+    getCurrentNicknameSessionMock.mockResolvedValue(sessionPayload);
+
+    const user = userEvent.setup();
+
+    renderWithProviders(
+      <SessionProvider>
+        <SessionConsumer />
+      </SessionProvider>,
+    );
+
+    expect(await screen.findByText('status:authenticated')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'invalidate' }));
+
+    await waitFor(() => {
+      expect(disconnectMock).toHaveBeenCalled();
+      expect(screen.getByText('status:unauthenticated')).toBeInTheDocument();
+      expect(screen.getByText('error:Invalid or expired session token')).toBeInTheDocument();
       expect(localStorage.getItem(sessionStorageKeys.sessionToken)).toBeNull();
     });
   });

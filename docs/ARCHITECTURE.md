@@ -167,6 +167,7 @@ Expone:
 - `errorMessage`
 - `login`
 - `logout`
+- `invalidateSession`
 - `clearSessionError`
 - `updateRuntimeSession`
 
@@ -178,6 +179,12 @@ Persistencia local:
 - `reconnectToken`
 - `lobbyId`
 - `battleId`
+
+Reglas operativas de sesión:
+
+- si la pestaña se cierra y la sesión está `idle` sin lobby ni batalla, el frontend intenta cerrar la sesión con `keepalive`
+- si el backend invalida el token, el frontend desconecta socket, limpia storage y vuelve a estado no autenticado
+- si la sesión restaurada contiene `reconnectToken` y progreso activo, el frontend intenta `reconnect_player` inmediatamente
 
 ## Decisiones de arquitectura
 
@@ -200,3 +207,4 @@ Cuando se modifiquen estas zonas conviene:
 - correr tests
 - validar móvil y desktop
 - revisar restore/reconnect de sesión
+- revisar expiración de token y limpieza de storage

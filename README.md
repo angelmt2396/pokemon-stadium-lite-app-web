@@ -155,5 +155,8 @@ docs/
 ## Notas operativas
 
 - el nickname sólo queda reservado mientras la sesión esté activa
+- si la pestaña se cierra con la sesión en `idle` y sin lobby/batalla, el frontend intenta cerrar la sesión para liberar el nickname
+- si la sesión expira o el backend responde `Invalid or expired session token`, el frontend limpia storage local y regresa a login
+- si existe `currentLobbyId` o `currentBattleId` junto con `reconnectToken`, `/battle` intenta rehidratar la sesión en tiempo real al entrar
 - `/battle` no inicia matchmaking automáticamente al montar la página
 - el build actual funciona correctamente; el warning pendiente de Vite sigue relacionado con tamaño de bundle

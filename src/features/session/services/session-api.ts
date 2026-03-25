@@ -9,6 +9,8 @@ type CloseSessionResponse = {
   closed: boolean;
 };
 
+type CloseSessionOptions = Pick<RequestInit, 'keepalive'>;
+
 export function createNicknameSession(body: CreateSessionRequest) {
   return apiRequest<SessionPayload>('/api/v1/player-sessions', {
     method: 'POST',
@@ -22,9 +24,10 @@ export function getCurrentNicknameSession(token: string) {
   });
 }
 
-export function closeNicknameSession(token: string) {
+export function closeNicknameSession(token: string, options: CloseSessionOptions = {}) {
   return apiRequest<CloseSessionResponse>('/api/v1/player-sessions/me', {
     method: 'DELETE',
     token,
+    ...options,
   });
 }

@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type PropsWithChildren,
 } from 'react';
@@ -22,6 +23,7 @@ type SessionContextValue = {
   errorMessage: string | null;
   login: (nickname: string) => Promise<SessionPayload>;
   logout: () => Promise<void>;
+  invalidateSession: (message?: string | null) => void;
   clearSessionError: () => void;
   updateRuntimeSession: (values: Partial<Pick<SessionSnapshot, 'reconnectToken' | 'currentLobbyId' | 'currentBattleId' | 'playerStatus'>>) => void;
 };
@@ -54,6 +56,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const [status, setStatus] = useState<SessionStatus>('restoring');
   const [session, setSession] = useState<SessionSnapshot | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const releasedSessionTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     const persisted = readPersistedSession();
@@ -132,6 +135,58 @@ export function SessionProvider({ children }: PropsWithChildren) {
     setStatus('unauthenticated');
   }, [session]);
 
+  const invalidateSession = useCallback((message?: string | null) => {
+    getSocketClient().disconnect();
+    clearPersistedSession();
+    setSession(null);
+    setStatus('unauthenticated');
+    setErrorMessage(message ?? null);
+  }, []);
+
+  const releaseIdleSessionOnPageExit = useCallback(() => {
+    if (!session) {
+      return;
+    }
+
+    const shouldReleaseSession =
+      session.playerStatus === 'idle' &&
+      session.currentLobbyId === null &&
+      session.currentBattleId === null;
+
+    if (!shouldReleaseSession || releasedSessionTokenRef.current === session.sessionToken) {
+      return;
+    }
+
+    releasedSessionTokenRef.current = session.sessionToken;
+    void closeNicknameSession(session.sessionToken, { keepalive: true }).catch(() => undefined);
+  }, [session]);
+
+  useEffect(() => {
+    releasedSessionTokenRef.current = null;
+  }, [session?.sessionToken]);
+
+  useEffect(() => {
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        return;
+      }
+
+      releaseIdleSessionOnPageExit();
+    };
+
+    const handleBeforeUnload = () => {
+      releaseIdleSessionOnPageExit();
+    };
+
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [releaseIdleSessionOnPageExit]);
+
   const clearSessionError = useCallback(() => {
     setErrorMessage(null);
   }, []);
@@ -181,10 +236,11 @@ export function SessionProvider({ children }: PropsWithChildren) {
           throw error;
         }
       },
+      invalidateSession,
       clearSessionError,
       updateRuntimeSession,
     }),
-    [clearSessionError, errorMessage, login, logout, session, status, updateRuntimeSession],
+    [clearSessionError, errorMessage, invalidateSession, login, logout, session, status, updateRuntimeSession],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

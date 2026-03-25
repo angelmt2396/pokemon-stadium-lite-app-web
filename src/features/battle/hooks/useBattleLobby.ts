@@ -31,8 +31,24 @@ type ActivityItem = {
   message: string;
 };
 
+function getSocketAuthSessionToken(socket: Socket) {
+  const auth = socket.auth;
+
+  if (!auth || typeof auth !== 'object' || !('sessionToken' in auth)) {
+    return null;
+  }
+
+  const sessionToken = auth.sessionToken;
+  return typeof sessionToken === 'string' ? sessionToken : null;
+}
+
 async function ensureSocketConnected(socket: Socket, sessionToken: string) {
+  const previousSessionToken = getSocketAuthSessionToken(socket);
   socket.auth = { sessionToken };
+
+  if ((socket.connected || socket.active) && previousSessionToken && previousSessionToken !== sessionToken) {
+    socket.disconnect();
+  }
 
   if (socket.connected) {
     return socket;
@@ -89,7 +105,7 @@ function findOpponent(players: BattleLobbyPlayer[], playerId: string) {
 
 export function useBattleLobby() {
   const { t } = useTranslation('battle');
-  const { session, updateRuntimeSession } = useSession();
+  const { session, updateRuntimeSession, invalidateSession } = useSession();
   const [connectionState, setConnectionState] = useState<SocketConnectionState>('disconnected');
   const [searchState, setSearchState] = useState<'idle' | 'searching'>('idle');
   const [lobbyStatus, setLobbyStatus] = useState<LobbyStatusEvent | null>(null);
@@ -114,6 +130,19 @@ export function useBattleLobby() {
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
+
+  const handleSessionTokenError = useCallback((error: unknown) => {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    if (error.message !== 'Invalid or expired session token') {
+      return false;
+    }
+
+    invalidateSession(error.message);
+    return true;
+  }, [invalidateSession]);
 
   useEffect(() => {
     if (!session) {
@@ -217,11 +246,16 @@ export function useBattleLobby() {
         });
       }
     } catch (error) {
+      if (handleSessionTokenError(error)) {
+        return;
+      }
+
       setActionError(error instanceof Error ? error.message : t('errors.unexpected'));
     } finally {
       reconnectInFlightRef.current = false;
     }
   }, [
+    handleSessionTokenError,
     t,
     updateRuntimeSession,
   ]);
@@ -255,10 +289,14 @@ export function useBattleLobby() {
       setBattleState(null);
       setBattleResult(null);
       setLatestTurnResult(null);
-    } catch {
+    } catch (error) {
+      if (handleSessionTokenError(error)) {
+        return;
+      }
+
       // Ignore reconciliation failures and leave the current UI state intact.
     }
-  }, [rehydrateRealtimeState, updateRuntimeSession]);
+  }, [handleSessionTokenError, rehydrateRealtimeState, updateRuntimeSession]);
 
   useEffect(() => {
     if (!session?.sessionToken) {
@@ -266,7 +304,12 @@ export function useBattleLobby() {
     }
 
     const socket = getSocketClient(session.sessionToken);
+    const previousSessionToken = getSocketAuthSessionToken(socket);
     socket.auth = { sessionToken: session.sessionToken };
+
+    if ((socket.connected || socket.active) && previousSessionToken && previousSessionToken !== session.sessionToken) {
+      socket.disconnect();
+    }
 
     const handleConnect = () => {
       setConnectionState('connected');
@@ -280,6 +323,10 @@ export function useBattleLobby() {
 
     const handleConnectError = (error: Error) => {
       setConnectionState('disconnected');
+      if (handleSessionTokenError(error)) {
+        return;
+      }
+
       setActionError(error.message);
     };
 
@@ -631,6 +678,7 @@ export function useBattleLobby() {
     };
   }, [
     appendActivity,
+    handleSessionTokenError,
     reconcileSessionState,
     rehydrateRealtimeState,
     session?.sessionToken,
@@ -642,6 +690,8 @@ export function useBattleLobby() {
     if (!session?.reconnectToken || (!session.currentLobbyId && !session.currentBattleId)) {
       return;
     }
+
+    void rehydrateRealtimeState();
 
     const intervalId = window.setInterval(() => {
       void rehydrateRealtimeState();
@@ -696,7 +746,11 @@ export function useBattleLobby() {
           setBattleResult(null);
           setLatestTurnResult(null);
         }
-      } catch {
+      } catch (error) {
+        if (handleSessionTokenError(error)) {
+          return;
+        }
+
         // Ignore polling errors. Realtime flow remains the primary source.
       }
     };
@@ -712,6 +766,7 @@ export function useBattleLobby() {
       window.clearInterval(intervalId);
     };
   }, [
+    handleSessionTokenError,
     rehydrateRealtimeState,
     searchState,
     session?.currentBattleId,
@@ -765,6 +820,10 @@ export function useBattleLobby() {
         void reconcileSessionState();
       }
 
+      if (handleSessionTokenError(error)) {
+        return;
+      }
+
       setActionError(
         error instanceof Error && error.message === 'socket_ack_timeout'
           ? t('errors.socketTimeout')
@@ -775,7 +834,7 @@ export function useBattleLobby() {
     } finally {
       setActionPending(false);
     }
-  }, [appendActivity, reconcileSessionState, session?.sessionToken, t, updateRuntimeSession]);
+  }, [appendActivity, handleSessionTokenError, reconcileSessionState, session?.sessionToken, t, updateRuntimeSession]);
 
   const assignTeam = useCallback(async () => {
     if (!session?.sessionToken || !session.currentLobbyId) {
@@ -792,6 +851,10 @@ export function useBattleLobby() {
       });
       return true;
     } catch (error) {
+      if (handleSessionTokenError(error)) {
+        return false;
+      }
+
       setActionError(
         error instanceof Error && error.message === 'socket_ack_timeout'
           ? t('errors.socketTimeout')
@@ -801,7 +864,7 @@ export function useBattleLobby() {
       );
       return false;
     }
-  }, [appendActivity, session?.currentLobbyId, session?.sessionToken, t]);
+  }, [appendActivity, handleSessionTokenError, session?.currentLobbyId, session?.sessionToken, t]);
 
   const dismissBattleResult = useCallback(() => {
     setBattleResult(null);
@@ -827,6 +890,10 @@ export function useBattleLobby() {
       });
       return true;
     } catch (error) {
+      if (handleSessionTokenError(error)) {
+        return false;
+      }
+
       setActionError(
         error instanceof Error && error.message === 'socket_ack_timeout'
           ? t('errors.socketTimeout')
@@ -836,7 +903,7 @@ export function useBattleLobby() {
       );
       return false;
     }
-  }, [appendActivity, session?.currentLobbyId, session?.sessionToken, t]);
+  }, [appendActivity, handleSessionTokenError, session?.currentLobbyId, session?.sessionToken, t]);
 
   const attack = useCallback(async () => {
     if (!session?.sessionToken || !battleState?.battleId) {
@@ -857,6 +924,10 @@ export function useBattleLobby() {
         throw new Error(ack.message);
       }
     } catch (error) {
+      if (handleSessionTokenError(error)) {
+        return;
+      }
+
       setActionError(
         error instanceof Error && error.message === 'socket_ack_timeout'
           ? t('errors.socketTimeout')
@@ -867,7 +938,7 @@ export function useBattleLobby() {
     } finally {
       setActionPending(false);
     }
-  }, [appendActivity, battleState?.battleId, session?.sessionToken, t]);
+  }, [appendActivity, battleState?.battleId, handleSessionTokenError, session?.sessionToken, t]);
 
   const stopSearch = useCallback(async (reason: 'manual' | 'timeout') => {
     if (!session?.sessionToken) {
@@ -912,6 +983,10 @@ export function useBattleLobby() {
     } catch (error) {
       setSearchStartedAt(null);
       setSearchElapsedMs(null);
+      if (handleSessionTokenError(error)) {
+        return false;
+      }
+
       setActionError(
         error instanceof Error && error.message === 'socket_ack_timeout'
           ? t('errors.socketTimeout')
@@ -923,7 +998,7 @@ export function useBattleLobby() {
     } finally {
       setActionPending(false);
     }
-  }, [appendActivity, session?.sessionToken, t, updateRuntimeSession]);
+  }, [appendActivity, handleSessionTokenError, session?.sessionToken, t, updateRuntimeSession]);
 
   const cancelSearch = useCallback(async () => {
     return await stopSearch('manual');

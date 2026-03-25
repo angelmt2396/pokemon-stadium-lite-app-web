@@ -58,6 +58,10 @@ La pantalla muestra:
 - CTA de ataque según turno
 - overlays de acciones y resultados
 
+Regla de restore:
+
+- si la sesión restaurada ya trae `currentBattleId` o `currentLobbyId`, el flujo entra en modo de rehidratación y no debe iniciar matchmaking nuevo
+
 ## Cinemáticas y overlays
 
 [BattlePage.tsx](../src/pages/BattlePage.tsx) maneja una cola de cinemáticas con etapas como:
@@ -81,11 +85,14 @@ Si una batalla se pausa por desconexión:
 - el backend envía el estado pausado
 - el frontend muestra un overlay de reconexión
 - se usa `reconnectDeadlineAt` para mostrar la cuenta regresiva
+- el frontend intenta `reconnect_player` al reconectar socket y también al entrar con una sesión restaurada que siga teniendo `reconnectToken`
+- si el `sessionToken` cambió al recuperar la sesión, el socket se reautentica antes de intentar reanudar
 
 Escenarios:
 
 - si vuelve el jugador desconectado antes del límite, la batalla continúa
 - si no vuelve, el backend termina la batalla por `disconnect_timeout`
+- la ventana efectiva de recuperación sigue siendo la del backend, hoy `15 segundos`
 
 ## Resultado final
 
@@ -144,6 +151,7 @@ Conviene validar con cuidado cuando se toque:
 
 - arranque manual de matchmaking
 - restore al refrescar
+- reautenticación del socket cuando cambia el `sessionToken`
 - overlays no bloqueantes vs bloqueantes
 - habilitación del botón `Atacar`
 - resolución visual del resultado final
