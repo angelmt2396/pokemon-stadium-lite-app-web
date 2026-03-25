@@ -4,7 +4,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type PropsWithChildren,
 } from 'react';
@@ -56,7 +55,6 @@ export function SessionProvider({ children }: PropsWithChildren) {
   const [status, setStatus] = useState<SessionStatus>('restoring');
   const [session, setSession] = useState<SessionSnapshot | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const releasedSessionTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     const persisted = readPersistedSession();
@@ -143,49 +141,41 @@ export function SessionProvider({ children }: PropsWithChildren) {
     setErrorMessage(message ?? null);
   }, []);
 
-  const releaseIdleSessionOnPageExit = useCallback(() => {
-    if (!session) {
+  useEffect(() => {
+    if (!session?.sessionToken) {
       return;
     }
 
-    const shouldReleaseSession =
-      session.playerStatus === 'idle' &&
-      session.currentLobbyId === null &&
-      session.currentBattleId === null;
+    const socket = getSocketClient(session.sessionToken);
+    const previousSessionToken =
+      socket.auth && typeof socket.auth === 'object' && 'sessionToken' in socket.auth && typeof socket.auth.sessionToken === 'string'
+        ? socket.auth.sessionToken
+        : null;
 
-    if (!shouldReleaseSession || releasedSessionTokenRef.current === session.sessionToken) {
-      return;
+    socket.auth = {
+      sessionToken: session.sessionToken,
+    };
+
+    if ((socket.connected || socket.active) && previousSessionToken && previousSessionToken !== session.sessionToken) {
+      socket.disconnect();
     }
 
-    releasedSessionTokenRef.current = session.sessionToken;
-    void closeNicknameSession(session.sessionToken, { keepalive: true }).catch(() => undefined);
-  }, [session]);
-
-  useEffect(() => {
-    releasedSessionTokenRef.current = null;
-  }, [session?.sessionToken]);
-
-  useEffect(() => {
-    const handlePageHide = (event: PageTransitionEvent) => {
-      if (event.persisted) {
-        return;
+    const handleConnectError = (error: Error) => {
+      if (error.message === 'Invalid or expired session token') {
+        invalidateSession(error.message);
       }
-
-      releaseIdleSessionOnPageExit();
     };
 
-    const handleBeforeUnload = () => {
-      releaseIdleSessionOnPageExit();
-    };
+    socket.on('connect_error', handleConnectError);
 
-    window.addEventListener('pagehide', handlePageHide);
-    window.addEventListener('beforeunload', handleBeforeUnload);
+    if (!socket.connected && !socket.active) {
+      socket.connect();
+    }
 
     return () => {
-      window.removeEventListener('pagehide', handlePageHide);
-      window.removeEventListener('beforeunload', handleBeforeUnload);
+      socket.off('connect_error', handleConnectError);
     };
-  }, [releaseIdleSessionOnPageExit]);
+  }, [invalidateSession, session?.sessionToken]);
 
   const clearSessionError = useCallback(() => {
     setErrorMessage(null);

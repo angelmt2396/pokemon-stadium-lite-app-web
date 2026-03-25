@@ -31,7 +31,6 @@ npm run test:coverage
 - restore de sesión persistida
 - login
 - logout
-- cierre automático de sesión idle al salir de la pestaña
 - invalidación local cuando el token expira
 - persistencia y limpieza de storage
 

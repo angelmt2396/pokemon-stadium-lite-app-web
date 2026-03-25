@@ -182,7 +182,6 @@ Persistencia local:
 
 Reglas operativas de sesión:
 
-- si la pestaña se cierra y la sesión está `idle` sin lobby ni batalla, el frontend intenta cerrar la sesión con `keepalive`
 - si el backend invalida el token, el frontend desconecta socket, limpia storage y vuelve a estado no autenticado
 - si la sesión restaurada contiene `reconnectToken` y progreso activo, el frontend intenta `reconnect_player` inmediatamente
 

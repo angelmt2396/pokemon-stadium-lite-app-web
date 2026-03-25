@@ -10,11 +10,17 @@ const {
   createNicknameSessionMock,
   getCurrentNicknameSessionMock,
   closeNicknameSessionMock,
+  connectMock,
+  offMock,
+  onMock,
   disconnectMock,
 } = vi.hoisted(() => ({
   createNicknameSessionMock: vi.fn(),
   getCurrentNicknameSessionMock: vi.fn(),
   closeNicknameSessionMock: vi.fn(),
+  connectMock: vi.fn(),
+  offMock: vi.fn(),
+  onMock: vi.fn(),
   disconnectMock: vi.fn(),
 }));
 
@@ -26,6 +32,12 @@ vi.mock('@/features/session/services/session-api', () => ({
 
 vi.mock('@/lib/socket/client', () => ({
   getSocketClient: () => ({
+    active: false,
+    connected: false,
+    auth: undefined,
+    connect: connectMock,
+    off: offMock,
+    on: onMock,
     disconnect: disconnectMock,
   }),
 }));
@@ -84,6 +96,9 @@ describe('SessionProvider', () => {
     createNicknameSessionMock.mockReset();
     getCurrentNicknameSessionMock.mockReset();
     closeNicknameSessionMock.mockReset();
+    connectMock.mockReset();
+    offMock.mockReset();
+    onMock.mockReset();
     disconnectMock.mockReset();
   });
 
@@ -106,6 +121,7 @@ describe('SessionProvider', () => {
     expect(screen.getByText('nickname:Ash')).toBeInTheDocument();
     expect(screen.getByText('lobby:lobby-1')).toBeInTheDocument();
     expect(getCurrentNicknameSessionMock).toHaveBeenCalledWith('persisted-token');
+    expect(connectMock).toHaveBeenCalled();
   });
 
   it('logs in and persists the returned session payload', async () => {
@@ -152,50 +168,6 @@ describe('SessionProvider', () => {
       expect(disconnectMock).toHaveBeenCalled();
       expect(screen.getByText('status:unauthenticated')).toBeInTheDocument();
       expect(localStorage.getItem(sessionStorageKeys.sessionToken)).toBeNull();
-    });
-  });
-
-  it('releases an idle session on page exit so the nickname can be reused', async () => {
-    localStorage.setItem(sessionStorageKeys.sessionToken, 'persisted-token');
-    getCurrentNicknameSessionMock.mockResolvedValue(sessionPayload);
-    closeNicknameSessionMock.mockResolvedValue({ closed: true });
-
-    renderWithProviders(
-      <SessionProvider>
-        <SessionConsumer />
-      </SessionProvider>,
-    );
-
-    expect(await screen.findByText('status:authenticated')).toBeInTheDocument();
-
-    window.dispatchEvent(new Event('pagehide'));
-
-    await waitFor(() => {
-      expect(closeNicknameSessionMock).toHaveBeenCalledWith('persisted-token', { keepalive: true });
-    });
-  });
-
-  it('does not release the session on page exit when the player still has an active lobby', async () => {
-    localStorage.setItem(sessionStorageKeys.sessionToken, 'persisted-token');
-    getCurrentNicknameSessionMock.mockResolvedValue({
-      ...sessionPayload,
-      currentLobbyId: 'lobby-1',
-      currentBattleId: null,
-      playerStatus: 'in_lobby',
-    });
-
-    renderWithProviders(
-      <SessionProvider>
-        <SessionConsumer />
-      </SessionProvider>,
-    );
-
-    expect(await screen.findByText('status:authenticated')).toBeInTheDocument();
-
-    window.dispatchEvent(new Event('pagehide'));
-
-    await waitFor(() => {
-      expect(closeNicknameSessionMock).not.toHaveBeenCalled();
     });
   });
 
